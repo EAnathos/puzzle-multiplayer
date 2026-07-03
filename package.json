@@ -1,0 +1,17 @@
+{
+  "name": "puzzle-multiplayer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "client",
+    "server"
+  ],
+  "scripts": {
+    "build": "npm --workspace client run build",
+    "start": "npm --workspace server run start",
+    "serve": "npm run build && npm run start",
+    "dev:server": "npm --workspace server run dev",
+    "dev:client": "npm --workspace client run dev"
+  }
+}

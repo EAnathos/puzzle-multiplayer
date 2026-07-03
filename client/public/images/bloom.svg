@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 450" width="600" height="450">
+  <defs>
+    <linearGradient id="meadow" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#bfe6ff"/>
+      <stop offset="45%" stop-color="#e9f7d0"/>
+      <stop offset="100%" stop-color="#6fae4e"/>
+    </linearGradient>
+    <g id="flower">
+      <circle cx="0" cy="-14" r="9"/>
+      <circle cx="13" cy="-4" r="9"/>
+      <circle cx="8" cy="12" r="9"/>
+      <circle cx="-8" cy="12" r="9"/>
+      <circle cx="-13" cy="-4" r="9"/>
+      <circle cx="0" cy="0" r="7" fill="#ffd43b"/>
+    </g>
+  </defs>
+  <rect width="600" height="450" fill="url(#meadow)"/>
+  <circle cx="90" cy="70" r="34" fill="#fff4b8" opacity="0.9"/>
+  <path d="M0 300 Q150 260 300 300 T600 300 V450 H0 Z" fill="#5c9e42" opacity="0.5"/>
+  <g stroke="#4c8a37" stroke-width="4">
+    <line x1="120" y1="330" x2="120" y2="250"/>
+    <line x1="230" y1="360" x2="230" y2="270"/>
+    <line x1="330" y1="340" x2="330" y2="255"/>
+    <line x1="440" y1="365" x2="440" y2="275"/>
+    <line x1="510" y1="335" x2="510" y2="250"/>
+    <line x1="180" y1="395" x2="180" y2="315"/>
+    <line x1="390" y1="400" x2="390" y2="320"/>
+  </g>
+  <use href="#flower" x="120" y="245" fill="#ff6b9d"/>
+  <use href="#flower" x="230" y="265" fill="#c77dff"/>
+  <use href="#flower" x="330" y="250" fill="#ff9f43"/>
+  <use href="#flower" x="440" y="270" fill="#ff6b6b"/>
+  <use href="#flower" x="510" y="245" fill="#f9c74f"/>
+  <use href="#flower" x="180" y="310" fill="#ffffff"/>
+  <use href="#flower" x="390" y="315" fill="#a0e7e5"/>
+</svg>
