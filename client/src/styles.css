@@ -640,3 +640,21 @@ input:focus {
   pointer-events: none;
   transform: translate(-50%, -50%);
 }
+
+/* Dépôt refusé : petite secousse rouge */
+@keyframes piece-error {
+  0% { transform: translateX(0); }
+  15% { transform: translateX(-5px); }
+  30% { transform: translateX(5px); }
+  45% { transform: translateX(-4px); }
+  60% { transform: translateX(4px); }
+  75% { transform: translateX(0); }
+  100% { transform: translateX(0); }
+}
+.piece.error {
+  animation: piece-error 0.42s ease;
+  filter: drop-shadow(0 0 3px #ef4444) drop-shadow(0 0 5px #ef4444) !important;
+}
+.tray-piece.error {
+  animation: piece-error 0.42s ease;
+}

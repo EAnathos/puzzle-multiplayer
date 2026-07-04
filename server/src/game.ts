@@ -26,6 +26,11 @@ const DIRS = [
   [0, -1],
 ];
 
+// Position du groupe au moment de la saisie (pour revenir en arrière si le dépôt
+// crée une adjacence incompatible). Clé : `${gameId}:${playerId}`.
+const grabSnapshots = new Map<string, { id: string; gx: number; gy: number }[]>();
+const snapKey = (game: Game, playerId: string) => `${game.id}:${playerId}`;
+
 export function configureGame(
   game: Game,
   imageId: string,
@@ -46,14 +51,24 @@ export function configureGame(
   const grid = { rows: def.rows, cols: def.cols };
   const board = boardSize(grid);
 
-  const cells: { gx: number; gy: number }[] = [];
+  // Cases en damier (parité) d'abord : deux pièces ne démarrent jamais
+  // orthogonalement adjacentes → aucune adjacence incompatible au départ.
+  const even: { gx: number; gy: number }[] = [];
+  const odd: { gx: number; gy: number }[] = [];
   for (let gy = 0; gy < board.rows; gy++) {
-    for (let gx = 0; gx < board.cols; gx++) cells.push({ gx, gy });
+    for (let gx = 0; gx < board.cols; gx++) {
+      ((gx + gy) % 2 === 0 ? even : odd).push({ gx, gy });
+    }
   }
-  for (let i = cells.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [cells[i], cells[j]] = [cells[j], cells[i]];
-  }
+  const shuffle = (a: { gx: number; gy: number }[]) => {
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+  };
+  shuffle(even);
+  shuffle(odd);
+  const cells = [...even, ...odd];
 
   const pieces: Piece[] = [];
   let g = 0;
@@ -105,6 +120,50 @@ function nextGroupId(game: Game): number {
   return game.pieces.reduce((m, p) => Math.max(m, p.group), 0) + 1;
 }
 
+// Composantes connexes (adjacence orthogonale) parmi les pièces d'un groupe.
+function connectedComponentsOf(game: Game, group: number): Piece[][] {
+  const mem = members(game, group);
+  const occ = new Map<string, Piece>();
+  for (const p of mem) occ.set(key(p.gx, p.gy), p);
+  const seen = new Set<string>();
+  const comps: Piece[][] = [];
+  for (const start of mem) {
+    if (seen.has(start.id)) continue;
+    const comp: Piece[] = [];
+    const stack = [start];
+    seen.add(start.id);
+    while (stack.length) {
+      const p = stack.pop()!;
+      comp.push(p);
+      for (const [dx, dy] of DIRS) {
+        const q = occ.get(key(p.gx + dx, p.gy + dy));
+        if (q && !seen.has(q.id)) {
+          seen.add(q.id);
+          stack.push(q);
+        }
+      }
+    }
+    comps.push(comp);
+  }
+  return comps;
+}
+
+// Après retrait d'une pièce, un groupe peut se retrouver en plusieurs morceaux
+// physiquement séparés : on rend à chaque morceau son propre id. La 1re
+// composante garde l'id d'origine. Renvoie les pièces dont le groupe a changé.
+function splitGroup(game: Game, group: number): { id: string; group: number }[] {
+  const comps = connectedComponentsOf(game, group);
+  const changes: { id: string; group: number }[] = [];
+  for (let i = 1; i < comps.length; i++) {
+    const ng = nextGroupId(game);
+    for (const p of comps[i]) {
+      p.group = ng;
+      changes.push({ id: p.id, group: ng });
+    }
+  }
+  return changes;
+}
+
 function nextTrayOrder(game: Game): number {
   return game.pieces.reduce((m, p) => Math.max(m, p.trayOrder), 0) + 1;
 }
@@ -114,22 +173,55 @@ export function grabGroup(
   pieceId: string,
   playerId: string,
   single: boolean
-): { ok: boolean; error?: string; group?: number; pieceIds?: string[] } {
+): {
+  ok: boolean;
+  error?: string;
+  group?: number;
+  pieceIds?: string[];
+  regroup?: { id: string; group: number }[];
+} {
   const piece = findPiece(game, pieceId);
   if (!piece || piece.tray) return { ok: false, error: "piece_not_found" };
   if (piece.heldBy && piece.heldBy !== playerId) {
     return { ok: false, error: "locked" };
   }
 
-  if (single && members(game, piece.group).length > 1) {
+  const oldGroup = piece.group;
+  let grabbed: Piece[];
+  let regroup: { id: string; group: number }[] = [];
+  if (single && members(game, oldGroup).length > 1) {
     piece.group = nextGroupId(game);
-    piece.heldBy = playerId;
-    return { ok: true, group: piece.group, pieceIds: [piece.id] };
+    grabbed = [piece];
+    regroup = splitGroup(game, oldGroup); // le reste peut se scinder en morceaux
+  } else {
+    grabbed = members(game, oldGroup);
   }
+  for (const p of grabbed) p.heldBy = playerId;
+  grabSnapshots.set(
+    snapKey(game, playerId),
+    grabbed.map((p) => ({ id: p.id, gx: p.gx, gy: p.gy }))
+  );
+  return {
+    ok: true,
+    group: piece.group,
+    pieceIds: grabbed.map((p) => p.id),
+    regroup,
+  };
+}
 
-  const grp = members(game, piece.group);
-  for (const p of grp) p.heldBy = playerId;
-  return { ok: true, group: piece.group, pieceIds: grp.map((p) => p.id) };
+// Toutes les adjacences du groupe sont-elles compatibles (tenon ↔ mortaise) ?
+function groupFits(game: Game, group: number): boolean {
+  const occ = occupancy(game);
+  for (const p of members(game, group)) {
+    for (const [dx, dy] of DIRS) {
+      const q = occ.get(key(p.gx + dx, p.gy + dy));
+      if (!q || q.group === group) continue;
+      if (!edgesFit(edgeInDir(game, p, dx, dy), edgeInDir(game, q, -dx, -dy))) {
+        return false;
+      }
+    }
+  }
+  return true;
 }
 
 export function moveGroup(
@@ -171,6 +263,8 @@ export interface DropResult {
   ok: boolean;
   settled?: Piece[];
   completed?: boolean;
+  rejected?: boolean; // adjacence incompatible → remis à sa place
+  rejectedIds?: string[];
 }
 
 function edgeInDir(game: Game, p: Piece, dx: number, dy: number): number {
@@ -213,13 +307,39 @@ export function dropGroup(
   const base = piece.group;
   for (const p of members(game, base)) p.heldBy = null;
 
+  const snap = grabSnapshots.get(snapKey(game, playerId));
+  grabSnapshots.delete(snapKey(game, playerId));
+
+  // Dépôt refusé si une pièce touche un voisin dont les bords ne s'emboîtent
+  // pas : on remet le groupe à sa position d'avant la saisie.
+  let rejected = false;
+  if (!groupFits(game, base)) {
+    rejected = true;
+    if (snap) {
+      const byId = new Map(snap.map((s) => [s.id, s]));
+      for (const p of members(game, base)) {
+        const s = byId.get(p.id);
+        if (s) {
+          p.gx = s.gx;
+          p.gy = s.gy;
+        }
+      }
+    }
+  }
+
   bond(game, base);
   updateScores(game, playerId, base);
 
-  const completed = isSolved(game.pieces);
+  const completed = !rejected && isSolved(game.pieces);
   if (completed && !game.completedAt) game.completedAt = Date.now();
 
-  return { ok: true, settled: members(game, base), completed };
+  return {
+    ok: true,
+    settled: members(game, base),
+    completed,
+    rejected,
+    rejectedIds: rejected ? snap?.map((s) => s.id) ?? [pieceId] : undefined,
+  };
 }
 
 // Met une pièce de côté dans le bac partagé (la détache, la retire du plateau).
@@ -227,18 +347,20 @@ export function trayPiece(
   game: Game,
   pieceId: string,
   playerId: string
-): { ok: boolean; order?: number } {
+): { ok: boolean; order?: number; regroup?: { id: string; group: number }[] } {
   const piece = findPiece(game, pieceId);
   if (!piece || piece.tray) return { ok: false };
   if (piece.heldBy && piece.heldBy !== playerId) return { ok: false };
 
+  const oldGroup = piece.group;
   piece.group = nextGroupId(game);
   piece.heldBy = null;
   piece.tray = true;
   piece.trayOrder = nextTrayOrder(game);
+  const regroup = splitGroup(game, oldGroup); // le bloc restant peut se scinder
 
   retally(game); // une voisine a pu perdre sa correction
-  return { ok: true, order: piece.trayOrder };
+  return { ok: true, order: piece.trayOrder, regroup };
 }
 
 // Repose une pièce du bac sur une case libre du plateau, puis soude.
@@ -252,9 +374,17 @@ export function untrayPiece(
   const piece = findPiece(game, pieceId);
   if (!piece || !piece.tray || !game.board) return { ok: false };
   if (gx < 0 || gy < 0 || gx >= game.board.cols || gy >= game.board.rows) {
-    return { ok: false };
+    return { ok: false, rejected: true };
   }
-  if (occupancy(game).get(key(gx, gy))) return { ok: false };
+  const occ = occupancy(game);
+  if (occ.get(key(gx, gy))) return { ok: false, rejected: true };
+  // Refuse si un voisin a un bord incompatible.
+  for (const [dx, dy] of DIRS) {
+    const q = occ.get(key(gx + dx, gy + dy));
+    if (q && !edgesFit(edgeInDir(game, piece, dx, dy), edgeInDir(game, q, -dx, -dy))) {
+      return { ok: false, rejected: true };
+    }
+  }
 
   piece.tray = false;
   piece.trayOrder = 0;
@@ -310,6 +440,7 @@ function tally(game: Game): void {
 }
 
 export function releaseHeldBy(game: Game, playerId: string): Piece[] {
+  grabSnapshots.delete(snapKey(game, playerId));
   const released: Piece[] = [];
   for (const p of game.pieces) {
     if (p.heldBy === playerId) {

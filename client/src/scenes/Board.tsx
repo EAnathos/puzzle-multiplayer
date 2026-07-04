@@ -68,6 +68,8 @@ export function Board({ game, myId, completion, onReplay }: BoardProps) {
   const [refBig, setRefBig] = useState(false);
   const [moveMode, setMoveMode] = useState<"single" | "block">("single");
   const [endDismissed, setEndDismissed] = useState(false);
+  // Pièces refusées (adjacence incompatible) → petite animation d'erreur.
+  const [errorPieces, setErrorPieces] = useState<Set<string>>(() => new Set());
   // Reprise d'une pièce depuis le bac (glisser vers le plateau).
   const [trayDrag, setTrayDrag] = useState<{ pieceId: string; sx: number; sy: number } | null>(null);
   const trayDragRef = useRef(trayDrag);
@@ -97,6 +99,28 @@ export function Board({ game, myId, completion, onReplay }: BoardProps) {
     socket.on("cursor:update", onCursor);
     return () => {
       socket.off("cursor:update", onCursor);
+    };
+  }, []);
+
+  // Dépôt refusé : marque les pièces en erreur ~450ms.
+  useEffect(() => {
+    function onReject({ pieceIds }: { pieceIds: string[] }) {
+      setErrorPieces((prev) => {
+        const n = new Set(prev);
+        for (const id of pieceIds) n.add(id);
+        return n;
+      });
+      setTimeout(() => {
+        setErrorPieces((prev) => {
+          const n = new Set(prev);
+          for (const id of pieceIds) n.delete(id);
+          return n;
+        });
+      }, 450);
+    }
+    socket.on("piece:reject", onReject);
+    return () => {
+      socket.off("piece:reject", onReject);
     };
   }, []);
 
@@ -312,6 +336,7 @@ export function Board({ game, myId, completion, onReplay }: BoardProps) {
                 url={image.url}
                 mine={p.heldBy === myId}
                 holderColor={holder}
+                error={errorPieces.has(p.id)}
               />
             );
           })}
@@ -411,6 +436,7 @@ export function Board({ game, myId, completion, onReplay }: BoardProps) {
                   geom={shapes.get(p.id)!}
                   url={image.url}
                   dragging={trayDrag?.pieceId === p.id}
+                  error={errorPieces.has(p.id)}
                   onDown={onTrayDown}
                   onMove={onTrayMove}
                   onUp={onTrayUp}
@@ -497,6 +523,7 @@ interface PieceProps {
   url: string;
   mine: boolean;
   holderColor?: string;
+  error?: boolean;
 }
 
 const Piece = memo(function Piece({
@@ -513,6 +540,7 @@ const Piece = memo(function Piece({
   url,
   mine,
   holderColor,
+  error,
 }: PieceProps) {
   const heldByOther = !!holderColor && !mine;
   const filter = holderColor
@@ -520,7 +548,7 @@ const Piece = memo(function Piece({
     : "drop-shadow(0 2px 3px rgba(0,0,0,0.55))";
   return (
     <div
-      className="piece"
+      className={`piece${error ? " error" : ""}`}
       data-piece-id={id}
       style={{
         left,
@@ -548,6 +576,7 @@ function TrayPiece({
   geom,
   url,
   dragging,
+  error,
   onDown,
   onMove,
   onUp,
@@ -556,6 +585,7 @@ function TrayPiece({
   geom: PieceGeometry;
   url: string;
   dragging: boolean;
+  error: boolean;
   onDown: (e: ReactPointerEvent, id: string) => void;
   onMove: (e: ReactPointerEvent) => void;
   onUp: (e: ReactPointerEvent) => void;
@@ -563,7 +593,7 @@ function TrayPiece({
   const s = TRAY_THUMB / Math.max(geom.boxW, geom.boxH);
   return (
     <div
-      className="tray-piece"
+      className={`tray-piece${error ? " error" : ""}`}
       style={{ width: geom.boxW * s, height: geom.boxH * s, opacity: dragging ? 0.3 : 1 }}
       onPointerDown={(e) => onDown(e, id)}
       onPointerMove={onMove}

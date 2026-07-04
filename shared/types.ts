@@ -182,6 +182,7 @@ export interface ServerToClientEvents {
     group: number;
     playerId: string;
     pieceIds: string[];
+    regroup: { id: string; group: number }[];
   }) => void;
   "group:moved": (data: {
     group: number;
@@ -194,7 +195,12 @@ export interface ServerToClientEvents {
     playerId: string;
   }) => void;
   "piece:unlocked": (data: { pieceIds: string[] }) => void;
-  "piece:trayed": (data: { pieceId: string; order: number }) => void;
+  "piece:reject": (data: { pieceIds: string[] }) => void;
+  "piece:trayed": (data: {
+    pieceId: string;
+    order: number;
+    regroup: { id: string; group: number }[];
+  }) => void;
   "piece:untrayed": (data: {
     pieces: { id: string; gx: number; gy: number; group: number }[];
     pieceId: string;

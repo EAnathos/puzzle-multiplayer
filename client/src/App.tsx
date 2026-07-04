@@ -55,15 +55,19 @@ export function App() {
     });
 
     // Un joueur attrape un groupe (ou détache une pièce) → verrouille + regroupe.
-    socket.on("piece:grabbed", ({ group, playerId, pieceIds }) => {
+    // `regroup` scinde le reste du bloc en morceaux séparés.
+    socket.on("piece:grabbed", ({ group, playerId, pieceIds, regroup }) => {
       const ids = new Set(pieceIds);
+      const reg = new Map(regroup.map((r) => [r.id, r.group]));
       setGame((prev) =>
         prev
           ? {
               ...prev,
-              pieces: prev.pieces.map((p) =>
-                ids.has(p.id) ? { ...p, group, heldBy: playerId } : p
-              ),
+              pieces: prev.pieces.map((p) => {
+                if (ids.has(p.id)) return { ...p, group, heldBy: playerId };
+                if (reg.has(p.id)) return { ...p, group: reg.get(p.id)! };
+                return p;
+              }),
             }
           : prev
       );
@@ -120,16 +124,20 @@ export function App() {
     });
 
     // Une pièce est mise de côté (bac partagé) → retirée du plateau.
-    socket.on("piece:trayed", ({ pieceId, order }) => {
+    // `regroup` scinde le reste du bloc en morceaux séparés.
+    socket.on("piece:trayed", ({ pieceId, order, regroup }) => {
+      const reg = new Map(regroup.map((r) => [r.id, r.group]));
       setGame((prev) =>
         prev
           ? {
               ...prev,
-              pieces: prev.pieces.map((p) =>
-                p.id === pieceId
-                  ? { ...p, tray: true, trayOrder: order, heldBy: null, group: -1 - order }
-                  : p
-              ),
+              pieces: prev.pieces.map((p) => {
+                if (p.id === pieceId) {
+                  return { ...p, tray: true, trayOrder: order, heldBy: null, group: -1 - order };
+                }
+                if (reg.has(p.id)) return { ...p, group: reg.get(p.id)! };
+                return p;
+              }),
             }
           : prev
       );

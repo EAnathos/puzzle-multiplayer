@@ -99,6 +99,7 @@ io.on("connection", (socket) => {
         group: res.group,
         playerId: socket.id,
         pieceIds: res.pieceIds,
+        regroup: res.regroup ?? [],
       });
     }
   });
@@ -132,6 +133,10 @@ io.on("connection", (socket) => {
       })),
       playerId: socket.id,
     });
+
+    if (res.rejected && res.rejectedIds) {
+      io.to(game.id).emit("piece:reject", { pieceIds: res.rejectedIds });
+    }
 
     // Les scores (pièces bien placées) ont pu changer pour tout le monde.
     io.to(game.id).emit("game:progress", {
@@ -169,7 +174,11 @@ io.on("connection", (socket) => {
     if (!game) return;
     const res = trayPiece(game, pieceId, socket.id);
     if (!res.ok || res.order === undefined) return;
-    io.to(game.id).emit("piece:trayed", { pieceId, order: res.order });
+    io.to(game.id).emit("piece:trayed", {
+      pieceId,
+      order: res.order,
+      regroup: res.regroup ?? [],
+    });
     broadcastScores(game.id);
   });
 
@@ -177,7 +186,10 @@ io.on("connection", (socket) => {
     const game = getGame(data.gameId ?? "");
     if (!game) return;
     const res = untrayPiece(game, pieceId, gx, gy, socket.id);
-    if (!res.ok || !res.settled) return;
+    if (!res.ok || !res.settled) {
+      if (res.rejected) io.to(game.id).emit("piece:reject", { pieceIds: [pieceId] });
+      return;
+    }
     io.to(game.id).emit("piece:untrayed", {
       pieces: res.settled.map((p) => ({
         id: p.id,
