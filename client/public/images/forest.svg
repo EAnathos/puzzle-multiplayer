@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 450" width="600" height="450">
+  <defs>
+    <linearGradient id="fsky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#bfe3c0"/>
+      <stop offset="55%" stop-color="#7ec27a"/>
+      <stop offset="100%" stop-color="#356b3a"/>
+    </linearGradient>
+  </defs>
+  <rect width="600" height="450" fill="url(#fsky)"/>
+  <circle cx="120" cy="80" r="40" fill="#fff3b0" opacity="0.9"/>
+  <path d="M0 300 Q150 270 300 300 T600 300 V450 H0 Z" fill="#2f5d34" opacity="0.55"/>
+  <g>
+    <rect x="90" y="250" width="14" height="90" fill="#6b4a2b"/>
+    <polygon points="97,150 50,270 144,270" fill="#2e7d47"/>
+    <polygon points="97,190 60,290 134,290" fill="#3a9256"/>
+  </g>
+  <g>
+    <rect x="270" y="270" width="16" height="110" fill="#6b4a2b"/>
+    <polygon points="278,160 220,300 336,300" fill="#276b3d"/>
+    <polygon points="278,205 232,320 324,320" fill="#358a4e"/>
+  </g>
+  <g>
+    <rect x="450" y="255" width="15" height="100" fill="#6b4a2b"/>
+    <polygon points="457,155 405,285 509,285" fill="#2e7d47"/>
+    <polygon points="457,200 415,305 499,305" fill="#3a9256"/>
+  </g>
+  <circle cx="200" cy="360" r="8" fill="#f6c945" opacity="0.8"/>
+  <circle cx="380" cy="385" r="7" fill="#ef5b7a" opacity="0.8"/>
+  <circle cx="520" cy="365" r="8" fill="#f6c945" opacity="0.8"/>
+</svg>

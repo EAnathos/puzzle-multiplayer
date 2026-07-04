@@ -7,23 +7,20 @@ import {
   useRef,
   useState,
   type Dispatch,
+  type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
   type SetStateAction,
 } from "react";
 import { socket } from "../net/socket.ts";
-import {
-  cellSize,
-  DIFFICULTIES,
-  wellPlacedSet,
-  type Game,
-} from "../../../shared/types.ts";
-import { buildGeometries } from "../puzzle/shape.ts";
+import { cellSize, type Game } from "../../../shared/types.ts";
+import { buildGeometries, type PieceGeometry } from "../puzzle/shape.ts";
 import type { Completion } from "../App.tsx";
 
 const CURSOR_MS = 45;
 const MOVE_MS = 40;
 const MIN_ZOOM = 0.2;
 const MAX_ZOOM = 2.5;
+const TRAY_THUMB = 64; // taille max d'une vignette du bac
 
 type Interaction =
   | { mode: "idle" }
@@ -35,7 +32,6 @@ type Interaction =
       offCy: number;
       lastGx: number;
       lastGy: number;
-      single: boolean;
       ready: boolean;
     };
 
@@ -47,7 +43,7 @@ interface BoardProps {
   onReplay: () => void;
 }
 
-export function Board({ game, myId, setGame, completion, onReplay }: BoardProps) {
+export function Board({ game, myId, completion, onReplay }: BoardProps) {
   const grid = game.grid!;
   const board = game.board!;
   const { w: cellW, h: cellH } = cellSize(grid);
@@ -59,6 +55,7 @@ export function Board({ game, myId, setGame, completion, onReplay }: BoardProps)
   const shapes = useMemo(() => buildGeometries(grid), [grid.rows, grid.cols]);
 
   const canvasRef = useRef<HTMLDivElement>(null);
+  const shelfRef = useRef<HTMLDivElement>(null);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
   const panRef = useRef(pan);
@@ -71,12 +68,15 @@ export function Board({ game, myId, setGame, completion, onReplay }: BoardProps)
   const [refBig, setRefBig] = useState(false);
   const [moveMode, setMoveMode] = useState<"single" | "block">("single");
   const [endDismissed, setEndDismissed] = useState(false);
+  // Reprise d'une pièce depuis le bac (glisser vers le plateau).
+  const [trayDrag, setTrayDrag] = useState<{ pieceId: string; sx: number; sy: number } | null>(null);
+  const trayDragRef = useRef(trayDrag);
+  trayDragRef.current = trayDrag;
 
   const it = useRef<Interaction>({ mode: "idle" });
   const lastCursor = useRef(0);
   const lastMove = useRef(0);
 
-  // Cadre initial : ajuste le zoom pour voir tout le plateau, centré.
   useLayoutEffect(() => {
     const el = canvasRef.current;
     if (!el) return;
@@ -90,7 +90,6 @@ export function Board({ game, myId, setGame, completion, onReplay }: BoardProps)
     setPan({ x: (vw - boardPxW * z) / 2, y: (vh - boardPxH * z) / 2 + 16 });
   }, [boardPxW, boardPxH]);
 
-  // Curseurs des autres joueurs.
   useEffect(() => {
     function onCursor({ playerId, x, y }: { playerId: string; x: number; y: number }) {
       setCursors((prev) => ({ ...prev, [playerId]: { x, y } }));
@@ -101,7 +100,18 @@ export function Board({ game, myId, setGame, completion, onReplay }: BoardProps)
     };
   }, []);
 
-  // Zoom molette centré sur le curseur (listener natif pour preventDefault).
+  // Shift ou Ctrl (une pression) bascule le mode « bloc entier ».
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.repeat) return;
+      if (e.key === "Shift" || e.key === "Control") {
+        setMoveMode((m) => (m === "single" ? "block" : "single"));
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   useEffect(() => {
     const el = canvasRef.current;
     if (!el) return;
@@ -131,19 +141,19 @@ export function Board({ game, myId, setGame, completion, onReplay }: BoardProps)
 
   const onPointerDown = useCallback(
     (e: ReactPointerEvent) => {
+      if (e.button !== 0) return; // clic gauche seulement (droit = bac)
       canvasRef.current?.setPointerCapture(e.pointerId);
       const el = (e.target as HTMLElement).closest("[data-piece-id]");
       const pieceId = (el as HTMLElement | null)?.dataset.pieceId;
       const piece = pieceId ? game.pieces.find((p) => p.id === pieceId) : undefined;
       const grabbable =
         piece &&
+        !piece.tray &&
         game.status !== "completed" &&
         !(piece.heldBy && piece.heldBy !== myId);
 
       if (piece && grabbable) {
-        const modifier = e.shiftKey || e.ctrlKey || e.metaKey;
-        // Défaut : une seule pièce. Shift/Ctrl (ou le bouton) → bloc entier.
-        const single = (moveMode === "single") !== modifier;
+        const single = moveMode === "single";
         const w = toWorld(e.clientX, e.clientY);
         it.current = {
           mode: "drag",
@@ -152,10 +162,8 @@ export function Board({ game, myId, setGame, completion, onReplay }: BoardProps)
           offCy: piece.gy - w.y / cellH,
           lastGx: piece.gx,
           lastGy: piece.gy,
-          single,
           ready: false,
         };
-        // Verrou/regroupement autoritatifs via l'événement piece:grabbed.
         socket.emit("piece:grab", { pieceId: piece.id, single }, (res) => {
           const cur = it.current;
           if (cur.mode !== "drag" || cur.pieceId !== piece.id) return;
@@ -219,10 +227,48 @@ export function Board({ game, myId, setGame, completion, onReplay }: BoardProps)
     canvasRef.current?.releasePointerCapture(e.pointerId);
   }, []);
 
-  const wellSet = useMemo(() => wellPlacedSet(game.pieces), [game.pieces]);
-  const placed = wellSet.size;
-  const total = game.pieces.length;
-  const def = DIFFICULTIES[game.difficulty ?? "easy"];
+  // Clic droit : envoie la pièce dans le bac partagé.
+  const onContextMenu = useCallback(
+    (e: ReactMouseEvent) => {
+      e.preventDefault();
+      const el = (e.target as HTMLElement).closest("[data-piece-id]");
+      const pieceId = (el as HTMLElement | null)?.dataset.pieceId;
+      const piece = pieceId ? game.pieces.find((p) => p.id === pieceId) : undefined;
+      if (!piece || piece.tray) return;
+      if (piece.heldBy && piece.heldBy !== myId) return;
+      socket.emit("piece:tray", { pieceId: piece.id });
+    },
+    [game.pieces, myId]
+  );
+
+  // --- Reprise depuis le bac ---
+  function onTrayDown(e: ReactPointerEvent, pieceId: string) {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    setTrayDrag({ pieceId, sx: e.clientX, sy: e.clientY });
+  }
+  function onTrayMove(e: ReactPointerEvent) {
+    if (!trayDragRef.current) return;
+    setTrayDrag((d) => (d ? { ...d, sx: e.clientX, sy: e.clientY } : d));
+  }
+  function onTrayUp(e: ReactPointerEvent) {
+    const d = trayDragRef.current;
+    setTrayDrag(null);
+    if (!d) return;
+    const shelf = shelfRef.current?.getBoundingClientRect();
+    const overShelf = shelf && e.clientY >= shelf.top;
+    if (!overShelf) {
+      const w = toWorld(e.clientX, e.clientY);
+      const gx = clamp(Math.round(w.x / cellW), 0, board.cols - 1);
+      const gy = clamp(Math.round(w.y / cellH), 0, board.rows - 1);
+      socket.emit("piece:untray", { pieceId: d.pieceId, gx, gy });
+    }
+  }
+
+  const trayPieces = game.pieces
+    .filter((p) => p.tray)
+    .sort((a, b) => a.trayOrder - b.trayOrder);
 
   return (
     <div className="game">
@@ -233,6 +279,7 @@ export function Board({ game, myId, setGame, completion, onReplay }: BoardProps)
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
+        onContextMenu={onContextMenu}
       >
         <div
           className="world"
@@ -246,6 +293,7 @@ export function Board({ game, myId, setGame, completion, onReplay }: BoardProps)
           }}
         >
           {game.pieces.map((p) => {
+            if (p.tray) return null; // au bac : pas sur le plateau
             const geom = shapes.get(p.id)!;
             const holder = p.heldBy ? game.players[p.heldBy]?.color : undefined;
             return (
@@ -270,7 +318,7 @@ export function Board({ game, myId, setGame, completion, onReplay }: BoardProps)
         </div>
       </div>
 
-      {/* Curseurs des autres joueurs, en espace écran (taille constante). */}
+      {/* Curseurs des autres joueurs, en espace écran. */}
       <div className="overlay cursors">
         {Object.entries(cursors).map(([pid, pos]) => {
           if (pid === myId) return null;
@@ -292,20 +340,6 @@ export function Board({ game, myId, setGame, completion, onReplay }: BoardProps)
       <div className="overlay hud">
         <div className="hud-panel top-left">
           <span className="hud-code">Code {game.id}</span>
-          <span className="hud-diff">
-            {def.label} · {game.pieces.length} pièces
-          </span>
-          <div className="hud-progress">
-            <div className="bar">
-              <div
-                className="bar-fill"
-                style={{ width: `${(placed / Math.max(1, total)) * 100}%` }}
-              />
-            </div>
-            <span>
-              {placed} / {total} bien placées
-            </span>
-          </div>
         </div>
 
         <div className="hud-panel top-right">
@@ -324,7 +358,7 @@ export function Board({ game, myId, setGame, completion, onReplay }: BoardProps)
               onClick={() =>
                 setMoveMode((m) => (m === "single" ? "block" : "single"))
               }
-              title="Sens par défaut du glisser. Shift/Ctrl inverse temporairement."
+              title="Sens du glisser. Shift ou Ctrl bascule aussi."
             >
               {moveMode === "single" ? "🧩 Pièce" : "🟦 Bloc"}
             </button>
@@ -359,11 +393,67 @@ export function Board({ game, myId, setGame, completion, onReplay }: BoardProps)
           </div>
         )}
 
-        <div className="hint-bar">
-          Glisse pour déplacer · Shift/Ctrl = bloc entier · molette = zoom · fond
-          = se déplacer
+        {/* Bac partagé */}
+        <div className="tray-shelf" ref={shelfRef}>
+          <span className="tray-label">
+            Bac {trayPieces.length > 0 ? `(${trayPieces.length})` : ""}
+          </span>
+          <div className="tray-items">
+            {trayPieces.length === 0 ? (
+              <span className="tray-empty">
+                Clic droit sur une pièce pour la mettre de côté
+              </span>
+            ) : (
+              trayPieces.map((p) => (
+                <TrayPiece
+                  key={p.id}
+                  id={p.id}
+                  geom={shapes.get(p.id)!}
+                  url={image.url}
+                  dragging={trayDrag?.pieceId === p.id}
+                  onDown={onTrayDown}
+                  onMove={onTrayMove}
+                  onUp={onTrayUp}
+                />
+              ))
+            )}
+          </div>
         </div>
       </div>
+
+      {/* Fantôme suivant le curseur pendant la reprise. */}
+      {trayDrag &&
+        (() => {
+          const geom = shapes.get(trayDrag.pieceId);
+          if (!geom) return null;
+          const s = TRAY_THUMB / Math.max(geom.boxW, geom.boxH);
+          return (
+            <div
+              className="tray-ghost"
+              style={{
+                left: trayDrag.sx,
+                top: trayDrag.sy,
+                width: geom.boxW * s,
+                height: geom.boxH * s,
+              }}
+            >
+              <div
+                style={{
+                  width: geom.boxW,
+                  height: geom.boxH,
+                  transform: `scale(${s})`,
+                  transformOrigin: "top left",
+                  backgroundImage: `url(${image.url})`,
+                  backgroundSize: `${geom.bgW}px ${geom.bgH}px`,
+                  backgroundPosition: `${geom.bgX}px ${geom.bgY}px`,
+                  clipPath: geom.clip,
+                  WebkitClipPath: geom.clip,
+                  filter: "drop-shadow(0 3px 5px rgba(0,0,0,0.6))",
+                }}
+              />
+            </div>
+          );
+        })()}
 
       {game.status === "completed" && !endDismissed && (
         <EndScreen
@@ -391,7 +481,7 @@ export function Board({ game, myId, setGame, completion, onReplay }: BoardProps)
   }
 }
 
-// --- Pièce (mémoïsée sur props primitives) ---
+// --- Pièce sur le plateau (mémoïsée) ---
 
 interface PieceProps {
   id: string;
@@ -451,7 +541,55 @@ const Piece = memo(function Piece({
   );
 });
 
-// --- Curseur d'un autre joueur (espace écran) ---
+// --- Vignette d'une pièce dans le bac ---
+
+function TrayPiece({
+  id,
+  geom,
+  url,
+  dragging,
+  onDown,
+  onMove,
+  onUp,
+}: {
+  id: string;
+  geom: PieceGeometry;
+  url: string;
+  dragging: boolean;
+  onDown: (e: ReactPointerEvent, id: string) => void;
+  onMove: (e: ReactPointerEvent) => void;
+  onUp: (e: ReactPointerEvent) => void;
+}) {
+  const s = TRAY_THUMB / Math.max(geom.boxW, geom.boxH);
+  return (
+    <div
+      className="tray-piece"
+      style={{ width: geom.boxW * s, height: geom.boxH * s, opacity: dragging ? 0.3 : 1 }}
+      onPointerDown={(e) => onDown(e, id)}
+      onPointerMove={onMove}
+      onPointerUp={onUp}
+      title="Glisse sur le plateau pour la reposer"
+    >
+      <div
+        style={{
+          width: geom.boxW,
+          height: geom.boxH,
+          transform: `scale(${s})`,
+          transformOrigin: "top left",
+          backgroundImage: `url(${url})`,
+          backgroundSize: `${geom.bgW}px ${geom.bgH}px`,
+          backgroundPosition: `${geom.bgX}px ${geom.bgY}px`,
+          clipPath: geom.clip,
+          WebkitClipPath: geom.clip,
+          filter: "drop-shadow(0 1px 2px rgba(0,0,0,0.55))",
+          pointerEvents: "none",
+        }}
+      />
+    </div>
+  );
+}
+
+// --- Curseur d'un autre joueur ---
 
 function Cursor({
   x,

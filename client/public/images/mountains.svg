@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 450" width="600" height="450">
+  <defs>
+    <linearGradient id="msky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#3b4b7a"/>
+      <stop offset="55%" stop-color="#7f9bd0"/>
+      <stop offset="100%" stop-color="#dfe9f5"/>
+    </linearGradient>
+  </defs>
+  <rect width="600" height="450" fill="url(#msky)"/>
+  <circle cx="480" cy="90" r="38" fill="#fff7e0"/>
+  <polygon points="80,430 260,150 440,430" fill="#5a6b8c"/>
+  <polygon points="260,150 210,230 310,230" fill="#eef3fb"/>
+  <polygon points="300,430 460,190 600,430" fill="#47597e"/>
+  <polygon points="460,190 420,255 500,255" fill="#eef3fb"/>
+  <polygon points="0,430 150,240 300,430" fill="#6a7ba0"/>
+  <polygon points="150,240 118,300 182,300" fill="#eef3fb"/>
+  <rect y="410" width="600" height="40" fill="#33507a"/>
+  <path d="M0 415 Q150 400 300 415 T600 415 V450 H0 Z" fill="#28406a"/>
+</svg>

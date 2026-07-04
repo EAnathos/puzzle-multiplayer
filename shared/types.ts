@@ -16,6 +16,8 @@ export interface Piece {
   group: number; // groupe soudé (déplacé d'un bloc)
   heldBy: string | null; // joueur qui tient le groupe
   placedBy: string | null; // joueur qui l'a correctement placée (score)
+  tray: boolean; // mise de côté dans le bac partagé (hors plateau)
+  trayOrder: number; // ordre d'affichage dans le bac
 }
 
 export interface Player {
@@ -65,6 +67,11 @@ export const IMAGES: GameImage[] = [
   { id: "sunset", label: "Coucher de soleil", url: "/images/sunset.svg" },
   { id: "ocean", label: "Vagues", url: "/images/ocean.svg" },
   { id: "bloom", label: "Fleurs", url: "/images/bloom.svg" },
+  { id: "forest", label: "Forêt", url: "/images/forest.svg" },
+  { id: "mountains", label: "Montagnes", url: "/images/mountains.svg" },
+  { id: "city", label: "Ville la nuit", url: "/images/city.svg" },
+  { id: "desert", label: "Désert", url: "/images/desert.svg" },
+  { id: "galaxy", label: "Galaxie", url: "/images/galaxy.svg" },
 ];
 
 export const PLAYER_COLORS = [
@@ -129,8 +136,9 @@ const cellKey = (x: number, y: number) => `${x},${y}`;
 // Pièces réellement bien placées : au moins une vraie voisine à la bonne
 // position relative (peu importe le groupe / les soudures « libres »).
 export function wellPlacedSet(pieces: Piece[]): Set<string> {
+  const board = pieces.filter((p) => !p.tray); // les pièces au bac ne comptent pas
   const occ = new Map<string, Piece>();
-  for (const p of pieces) occ.set(cellKey(p.gx, p.gy), p);
+  for (const p of board) occ.set(cellKey(p.gx, p.gy), p);
   const set = new Set<string>();
   const dirs = [
     [1, 0],
@@ -138,7 +146,7 @@ export function wellPlacedSet(pieces: Piece[]): Set<string> {
     [0, 1],
     [0, -1],
   ];
-  for (const p of pieces) {
+  for (const p of board) {
     for (const [dcol, drow] of dirs) {
       const q = occ.get(cellKey(p.gx + dcol, p.gy + drow));
       if (q && q.row === p.row + drow && q.col === p.col + dcol) {
@@ -150,9 +158,10 @@ export function wellPlacedSet(pieces: Piece[]): Set<string> {
   return set;
 }
 
-// Puzzle terminé : toutes les pièces au bon décalage relatif (image correcte).
+// Puzzle terminé : toutes les pièces sur le plateau, au bon décalage relatif.
 export function isSolved(pieces: Piece[]): boolean {
   if (!pieces.length) return false;
+  if (pieces.some((p) => p.tray)) return false;
   const ref = pieces[0];
   return pieces.every(
     (p) =>
@@ -185,6 +194,11 @@ export interface ServerToClientEvents {
     playerId: string;
   }) => void;
   "piece:unlocked": (data: { pieceIds: string[] }) => void;
+  "piece:trayed": (data: { pieceId: string; order: number }) => void;
+  "piece:untrayed": (data: {
+    pieces: { id: string; gx: number; gy: number; group: number }[];
+    pieceId: string;
+  }) => void;
   "game:progress": (data: { placed: number; total: number }) => void;
   "game:completed": (data: {
     completedAt: number;
@@ -202,7 +216,11 @@ export interface ClientToServerEvents {
     data: { gameId: string; pseudo: string },
     ack: (res: { ok: true; game: Game } | { ok: false; error: string }) => void
   ) => void;
-  "game:configure": (data: { imageId: string; difficulty: Difficulty }) => void;
+  "game:configure": (data: {
+    imageId: string;
+    difficulty: Difficulty;
+    customImage?: { url: string; label: string };
+  }) => void;
   "cursor:move": (data: { x: number; y: number }) => void;
   "piece:grab": (
     data: { pieceId: string; single: boolean },
@@ -210,4 +228,6 @@ export interface ClientToServerEvents {
   ) => void;
   "group:move": (data: { pieceId: string; gx: number; gy: number }) => void;
   "piece:drop": (data: { pieceId: string }) => void;
+  "piece:tray": (data: { pieceId: string }) => void;
+  "piece:untray": (data: { pieceId: string; gx: number; gy: number }) => void;
 }

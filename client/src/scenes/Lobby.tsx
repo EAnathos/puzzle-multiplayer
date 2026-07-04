@@ -16,7 +16,6 @@ export function Lobby() {
     socket.emit("game:create", { pseudo: name }, (res) => {
       setBusy(false);
       if (!res.ok) setError("Impossible de créer la partie.");
-      // Succès : le serveur renvoie aussi game:state, géré par App.
     });
   }
 
@@ -34,24 +33,20 @@ export function Lobby() {
     <div className="lobby">
       <div className="card">
         <h1>🧩 Puzzle Multiplayer</h1>
-        <p className="subtitle">
-          Assemblez un puzzle à plusieurs, en temps réel. Pas de compte : un
-          pseudo et c'est parti.
-        </p>
+        <p className="subtitle">Assemblez un puzzle à plusieurs, en temps réel.</p>
 
-        <label className="field">
-          <span>Ton pseudo</span>
+        <div className="join-row">
           <input
             value={pseudo}
-            maxLength={20}
-            placeholder="ex. Alex"
+            maxLength={12}
+            placeholder="Ton pseudo"
             onChange={(e) => setPseudo(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && create()}
           />
-        </label>
-
-        <button className="btn primary" disabled={!name || busy} onClick={create}>
-          Créer une partie
-        </button>
+          <button className="btn primary" disabled={!name || busy} onClick={create}>
+            Créer
+          </button>
+        </div>
 
         <div className="divider">ou rejoindre</div>
 
@@ -75,9 +70,6 @@ export function Lobby() {
 
         {error && <p className="error">{error}</p>}
       </div>
-      <footer className="lobby-footer">
-        Ouvre cette page dans plusieurs onglets pour tester à plusieurs.
-      </footer>
     </div>
   );
 }

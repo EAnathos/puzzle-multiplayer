@@ -54,7 +54,7 @@ export function pickColor(game: Game): string {
 export function addPlayer(game: Game, id: string, pseudo: string): Player {
   const player: Player = {
     id,
-    pseudo: pseudo.trim().slice(0, 20) || "Joueur",
+    pseudo: pseudo.trim().slice(0, 12) || "Joueur",
     color: pickColor(game),
     cursor: { x: 0, y: 0 },
     connected: true,

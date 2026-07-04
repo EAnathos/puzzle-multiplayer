@@ -119,6 +119,40 @@ export function App() {
       );
     });
 
+    // Une pièce est mise de côté (bac partagé) → retirée du plateau.
+    socket.on("piece:trayed", ({ pieceId, order }) => {
+      setGame((prev) =>
+        prev
+          ? {
+              ...prev,
+              pieces: prev.pieces.map((p) =>
+                p.id === pieceId
+                  ? { ...p, tray: true, trayOrder: order, heldBy: null, group: -1 - order }
+                  : p
+              ),
+            }
+          : prev
+      );
+    });
+
+    // Une pièce du bac est reposée sur le plateau (et soudée).
+    socket.on("piece:untrayed", ({ pieces }) => {
+      const byId = new Map(pieces.map((p) => [p.id, p]));
+      setGame((prev) =>
+        prev
+          ? {
+              ...prev,
+              pieces: prev.pieces.map((p) => {
+                const u = byId.get(p.id);
+                return u
+                  ? { ...p, gx: u.gx, gy: u.gy, group: u.group, heldBy: null, tray: false }
+                  : p;
+              }),
+            }
+          : prev
+      );
+    });
+
     socket.on("game:completed", ({ durationMs, contributions }) => {
       setCompletion({ durationMs, contributions });
       setGame((prev) => (prev ? { ...prev, status: "completed" } : prev));
@@ -135,6 +169,8 @@ export function App() {
       socket.off("group:moved");
       socket.off("group:settled");
       socket.off("piece:unlocked");
+      socket.off("piece:trayed");
+      socket.off("piece:untrayed");
       socket.off("game:completed");
     };
   }, []);

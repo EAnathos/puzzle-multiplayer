@@ -17,6 +17,8 @@ import {
   moveGroup,
   placedCount,
   releaseHeldBy,
+  trayPiece,
+  untrayPiece,
 } from "./game.ts";
 import {
   addPlayer,
@@ -66,13 +68,15 @@ io.on("connection", (socket) => {
     socket.join(game.id);
 
     ack({ ok: true, game });
+    // L'arrivant reçoit l'état complet → lobby ou partie en cours selon le statut.
+    socket.emit("game:state", game);
     socket.to(game.id).emit("player:joined", player);
   });
 
-  socket.on("game:configure", ({ imageId, difficulty }) => {
+  socket.on("game:configure", ({ imageId, difficulty, customImage }) => {
     const game = getGame(data.gameId ?? "");
     if (!game || game.hostId !== socket.id) return;
-    if (configureGame(game, imageId, difficulty)) {
+    if (configureGame(game, imageId, difficulty, customImage)) {
       io.to(game.id).emit("game:state", game);
     }
   });
@@ -138,6 +142,52 @@ io.on("connection", (socket) => {
       io.to(game.id).emit("player:update", player);
     }
 
+    if (res.completed && game.completedAt) {
+      game.status = "completed";
+      io.to(game.id).emit("game:completed", {
+        completedAt: game.completedAt,
+        durationMs: game.completedAt - game.createdAt,
+        contributions: contributions(game),
+      });
+    }
+  });
+
+  function broadcastScores(gameId: string) {
+    const g = getGame(gameId);
+    if (!g) return;
+    io.to(gameId).emit("game:progress", {
+      placed: placedCount(g),
+      total: g.pieces.length,
+    });
+    for (const player of Object.values(g.players)) {
+      io.to(gameId).emit("player:update", player);
+    }
+  }
+
+  socket.on("piece:tray", ({ pieceId }) => {
+    const game = getGame(data.gameId ?? "");
+    if (!game) return;
+    const res = trayPiece(game, pieceId, socket.id);
+    if (!res.ok || res.order === undefined) return;
+    io.to(game.id).emit("piece:trayed", { pieceId, order: res.order });
+    broadcastScores(game.id);
+  });
+
+  socket.on("piece:untray", ({ pieceId, gx, gy }) => {
+    const game = getGame(data.gameId ?? "");
+    if (!game) return;
+    const res = untrayPiece(game, pieceId, gx, gy, socket.id);
+    if (!res.ok || !res.settled) return;
+    io.to(game.id).emit("piece:untrayed", {
+      pieces: res.settled.map((p) => ({
+        id: p.id,
+        gx: p.gx,
+        gy: p.gy,
+        group: p.group,
+      })),
+      pieceId,
+    });
+    broadcastScores(game.id);
     if (res.completed && game.completedAt) {
       game.status = "completed";
       io.to(game.id).emit("game:completed", {

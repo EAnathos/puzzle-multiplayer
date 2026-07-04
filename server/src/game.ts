@@ -2,6 +2,7 @@
 // Cases entières, une pièce par case. Soudure « libre » : deux pièces se collent
 // si leurs bords s'emboîtent (tenon ↔ mortaise), même à la mauvaise place.
 // Le score ne compte que les pièces réellement bien placées.
+// Bac partagé : une pièce peut être mise de côté (tray) hors du plateau.
 
 import {
   DIFFICULTIES,
@@ -13,19 +14,34 @@ import {
   wellPlacedSet,
   type Difficulty,
   type Game,
+  type GameImage,
   type Piece,
 } from "../../shared/types.ts";
 
 const key = (gx: number, gy: number) => `${gx},${gy}`;
+const DIRS = [
+  [1, 0],
+  [-1, 0],
+  [0, 1],
+  [0, -1],
+];
 
 export function configureGame(
   game: Game,
   imageId: string,
-  difficulty: Difficulty
+  difficulty: Difficulty,
+  customImage?: { url: string; label: string }
 ): boolean {
-  const image = IMAGES.find((i) => i.id === imageId);
   const def = DIFFICULTIES[difficulty];
-  if (!image || !def) return false;
+  if (!def) return false;
+
+  let image: GameImage | undefined;
+  if (imageId === "custom" && customImage?.url) {
+    image = { id: "custom", label: customImage.label || "Mon image", url: customImage.url };
+  } else {
+    image = IMAGES.find((i) => i.id === imageId);
+  }
+  if (!image) return false;
 
   const grid = { rows: def.rows, cols: def.cols };
   const board = boardSize(grid);
@@ -53,6 +69,8 @@ export function configureGame(
         group: g++,
         heldBy: null,
         placedBy: null,
+        tray: false,
+        trayOrder: 0,
       });
     }
   }
@@ -76,9 +94,10 @@ function members(game: Game, group: number): Piece[] {
   return game.pieces.filter((p) => p.group === group);
 }
 
+// Occupation des cases : les pièces du bac (tray) ne sont pas sur le plateau.
 function occupancy(game: Game): Map<string, Piece> {
   const map = new Map<string, Piece>();
-  for (const p of game.pieces) map.set(key(p.gx, p.gy), p);
+  for (const p of game.pieces) if (!p.tray) map.set(key(p.gx, p.gy), p);
   return map;
 }
 
@@ -86,8 +105,10 @@ function nextGroupId(game: Game): number {
   return game.pieces.reduce((m, p) => Math.max(m, p.group), 0) + 1;
 }
 
-// Attrape une pièce. single = extraire cette seule pièce du bloc ; sinon tout
-// le bloc. Renvoie le groupe tenu et ses pièces.
+function nextTrayOrder(game: Game): number {
+  return game.pieces.reduce((m, p) => Math.max(m, p.trayOrder), 0) + 1;
+}
+
 export function grabGroup(
   game: Game,
   pieceId: string,
@@ -95,13 +116,12 @@ export function grabGroup(
   single: boolean
 ): { ok: boolean; error?: string; group?: number; pieceIds?: string[] } {
   const piece = findPiece(game, pieceId);
-  if (!piece) return { ok: false, error: "piece_not_found" };
+  if (!piece || piece.tray) return { ok: false, error: "piece_not_found" };
   if (piece.heldBy && piece.heldBy !== playerId) {
     return { ok: false, error: "locked" };
   }
 
   if (single && members(game, piece.group).length > 1) {
-    // Détache la pièce dans un nouveau groupe.
     piece.group = nextGroupId(game);
     piece.heldBy = playerId;
     return { ok: true, group: piece.group, pieceIds: [piece.id] };
@@ -153,13 +173,33 @@ export interface DropResult {
   completed?: boolean;
 }
 
-// Bord de p face à un voisin situé dans la direction (dx, dy) du plateau.
 function edgeInDir(game: Game, p: Piece, dx: number, dy: number): number {
   const e = pieceEdges(p.row, p.col, game.grid!);
   if (dx === 1) return e.right;
   if (dx === -1) return e.left;
   if (dy === 1) return e.bottom;
   return e.top;
+}
+
+// Soudure « libre » : fusionne dans `base` les voisins dont les bords s'emboîtent.
+function bond(game: Game, base: number): void {
+  let changed = true;
+  while (changed) {
+    changed = false;
+    const occ = occupancy(game);
+    for (const p of members(game, base)) {
+      for (const [dx, dy] of DIRS) {
+        const q = occ.get(key(p.gx + dx, p.gy + dy));
+        if (!q || q.group === base) continue;
+        const a = edgeInDir(game, p, dx, dy);
+        const b = edgeInDir(game, q, -dx, -dy);
+        if (edgesFit(a, b)) {
+          for (const m of members(game, q.group)) m.group = base;
+          changed = true;
+        }
+      }
+    }
+  }
 }
 
 export function dropGroup(
@@ -173,30 +213,58 @@ export function dropGroup(
   const base = piece.group;
   for (const p of members(game, base)) p.heldBy = null;
 
-  // Soudure « libre » : fusionne les voisins dont les bords s'emboîtent.
-  let changed = true;
-  while (changed) {
-    changed = false;
-    const occ = occupancy(game);
-    for (const p of members(game, base)) {
-      for (const [dx, dy] of [
-        [1, 0],
-        [-1, 0],
-        [0, 1],
-        [0, -1],
-      ]) {
-        const q = occ.get(key(p.gx + dx, p.gy + dy));
-        if (!q || q.group === base) continue;
-        const a = edgeInDir(game, p, dx, dy);
-        const b = edgeInDir(game, q, -dx, -dy);
-        if (edgesFit(a, b)) {
-          for (const m of members(game, q.group)) m.group = base;
-          changed = true;
-        }
-      }
-    }
-  }
+  bond(game, base);
+  updateScores(game, playerId, base);
 
+  const completed = isSolved(game.pieces);
+  if (completed && !game.completedAt) game.completedAt = Date.now();
+
+  return { ok: true, settled: members(game, base), completed };
+}
+
+// Met une pièce de côté dans le bac partagé (la détache, la retire du plateau).
+export function trayPiece(
+  game: Game,
+  pieceId: string,
+  playerId: string
+): { ok: boolean; order?: number } {
+  const piece = findPiece(game, pieceId);
+  if (!piece || piece.tray) return { ok: false };
+  if (piece.heldBy && piece.heldBy !== playerId) return { ok: false };
+
+  piece.group = nextGroupId(game);
+  piece.heldBy = null;
+  piece.tray = true;
+  piece.trayOrder = nextTrayOrder(game);
+
+  retally(game); // une voisine a pu perdre sa correction
+  return { ok: true, order: piece.trayOrder };
+}
+
+// Repose une pièce du bac sur une case libre du plateau, puis soude.
+export function untrayPiece(
+  game: Game,
+  pieceId: string,
+  gx: number,
+  gy: number,
+  playerId: string
+): DropResult {
+  const piece = findPiece(game, pieceId);
+  if (!piece || !piece.tray || !game.board) return { ok: false };
+  if (gx < 0 || gy < 0 || gx >= game.board.cols || gy >= game.board.rows) {
+    return { ok: false };
+  }
+  if (occupancy(game).get(key(gx, gy))) return { ok: false };
+
+  piece.tray = false;
+  piece.trayOrder = 0;
+  piece.gx = gx;
+  piece.gy = gy;
+  piece.group = nextGroupId(game);
+  piece.heldBy = null;
+
+  const base = piece.group;
+  bond(game, base);
   updateScores(game, playerId, base);
 
   const completed = isSolved(game.pieces);
@@ -206,28 +274,33 @@ export function dropGroup(
 }
 
 // Recalcule les pièces bien placées. On ne crédite que celles que ce joueur
-// vient de placer : le groupe posé et ses voisines directes (pas les pièces
-// qui se trouvaient déjà bien placées ailleurs).
+// vient de placer : le groupe posé et ses voisines directes.
 export function updateScores(game: Game, playerId: string, group: number): void {
   const well = wellPlacedSet(game.pieces);
   const occ = occupancy(game);
   const affected = new Set<string>();
   for (const p of members(game, group)) {
     affected.add(p.id);
-    for (const [dx, dy] of [
-      [1, 0],
-      [-1, 0],
-      [0, 1],
-      [0, -1],
-    ]) {
+    for (const [dx, dy] of DIRS) {
       const q = occ.get(key(p.gx + dx, p.gy + dy));
       if (q) affected.add(q.id);
     }
   }
   for (const p of game.pieces) {
-    if (!well.has(p.id)) p.placedBy = null; // séparée → n'est plus créditée
+    if (!well.has(p.id)) p.placedBy = null;
     else if (affected.has(p.id) && !p.placedBy) p.placedBy = playerId;
   }
+  tally(game);
+}
+
+// Retire le crédit des pièces qui ne sont plus bien placées, puis recompte.
+function retally(game: Game): void {
+  const well = wellPlacedSet(game.pieces);
+  for (const p of game.pieces) if (!well.has(p.id)) p.placedBy = null;
+  tally(game);
+}
+
+function tally(game: Game): void {
   for (const player of Object.values(game.players)) player.piecesPlaced = 0;
   for (const p of game.pieces) {
     if (p.placedBy && game.players[p.placedBy]) {
