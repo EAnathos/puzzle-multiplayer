@@ -16,7 +16,6 @@ jobs:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_KEY }}
-          passphrase: ${{ secrets.SSH_KEY_PASS }}
           script: |
             cd ~/eanathos/puzzle-multiplayer
             git pull
