@@ -22,4 +22,5 @@ jobs:
             git pull
             npm install
             npm run build
-            pm2 restart puzzle-multiplayer
+            pm2 restart puzzle-multiplayer || PORT=3005 pm2 start npm --name puzzle-multiplayer -- run start
+            pm2 save
