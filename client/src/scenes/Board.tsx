@@ -67,6 +67,9 @@ export function Board({ game, myId, completion, onReplay }: BoardProps) {
   const [showRef, setShowRef] = useState(true);
   const [refBig, setRefBig] = useState(false);
   const [moveMode, setMoveMode] = useState<"single" | "block">("single");
+  // Shift/Ctrl : mode « bloc » momentané (le temps qu'on maintient la touche).
+  const [modeKeyHeld, setModeKeyHeld] = useState(false);
+  const modeKeyRef = useRef(false);
   const [endDismissed, setEndDismissed] = useState(false);
   const [codeCopied, setCodeCopied] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -138,20 +141,36 @@ export function Board({ game, myId, completion, onReplay }: BoardProps) {
     };
   }, []);
 
-  // Raccourcis clavier : Shift/Ctrl bascule le mode « bloc », Échap quitte.
+  // Raccourcis clavier : Échap ouvre le menu ; Shift/Ctrl active le mode
+  // « bloc » de façon momentanée (seulement tant que la touche est maintenue),
+  // pour éviter de rester coincé en mode bloc après une pression accidentelle.
   useEffect(() => {
+    function setBlockKey(on: boolean) {
+      modeKeyRef.current = on;
+      setModeKeyHeld(on);
+    }
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") {
         setMenuOpen((o) => !o);
         return;
       }
-      if (e.repeat) return;
-      if (e.key === "Shift" || e.key === "Control") {
-        setMoveMode((m) => (m === "single" ? "block" : "single"));
-      }
+      if (e.key === "Shift" || e.key === "Control") setBlockKey(true);
+    }
+    function onKeyUp(e: KeyboardEvent) {
+      if (e.key === "Shift" || e.key === "Control") setBlockKey(false);
+    }
+    // Si la fenêtre perd le focus touche enfoncée, on ne reste pas bloqué.
+    function onBlur() {
+      setBlockKey(false);
     }
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("blur", onBlur);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", onBlur);
+    };
   }, []);
 
   useEffect(() => {
@@ -210,7 +229,8 @@ export function Board({ game, myId, completion, onReplay }: BoardProps) {
         !(piece.heldBy && piece.heldBy !== myId);
 
       if (piece && grabbable) {
-        const single = moveMode === "single";
+        // Touche maintenue → bloc ; sinon le mode choisi par le bouton.
+        const single = !modeKeyRef.current && moveMode === "single";
         const w = toWorld(e.clientX, e.clientY);
         it.current = {
           mode: "drag",
@@ -511,13 +531,15 @@ export function Board({ game, myId, completion, onReplay }: BoardProps) {
           </div>
           <div className="controls">
             <button
-              className={`btn small mode ${moveMode}`}
+              className={`btn small mode ${
+                modeKeyHeld || moveMode === "block" ? "block" : "single"
+              }`}
               onClick={() =>
                 setMoveMode((m) => (m === "single" ? "block" : "single"))
               }
-              title="Sens du glisser. Shift ou Ctrl bascule aussi."
+              title="Sens du glisser. Maintenir Shift ou Ctrl force le mode bloc."
             >
-              {moveMode === "single" ? "🧩 Pièce" : "🟦 Bloc"}
+              {modeKeyHeld || moveMode === "block" ? "🟦 Bloc" : "🧩 Pièce"}
             </button>
             <button className="btn small" onClick={() => zoomBy(0.8)}>
               −
@@ -609,7 +631,7 @@ export function Board({ game, myId, completion, onReplay }: BoardProps) {
             <h2>Menu</h2>
             <ul className="shortcuts">
               <li>
-                <kbd>Shift</kbd> / <kbd>Ctrl</kbd> Déplacer le bloc entier
+                <kbd>Shift</kbd> / <kbd>Ctrl</kbd> (maintenir) Déplacer le bloc entier
               </li>
               <li>
                 <kbd>Clic droit</kbd> / <kbd>Appui long</kbd> Envoyer la pièce au bac

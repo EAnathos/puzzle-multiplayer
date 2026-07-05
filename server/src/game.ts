@@ -403,8 +403,9 @@ export function untrayPiece(
   return { ok: true, settled: members(game, base), completed };
 }
 
-// Repose une pièce du bac sur une case libre aléatoire dont tous les voisins
-// sont compatibles (mêmes règles que le dépôt manuel). `rejected` si aucune.
+// Repose une pièce du bac sur une case libre aléatoire *à l'écart* du puzzle :
+// une case dont aucune voisine n'est occupée, pour que la pièce revienne
+// détachée sur la table (jamais soudée directement dans le puzzle assemblé).
 export function untrayPieceRandom(
   game: Game,
   pieceId: string,
@@ -414,19 +415,28 @@ export function untrayPieceRandom(
   if (!piece || !piece.tray || !game.board) return { ok: false };
 
   const occ = occupancy(game);
-  const cells: { gx: number; gy: number }[] = [];
+  const isolated: { gx: number; gy: number }[] = [];
+  const anyFree: { gx: number; gy: number }[] = [];
   for (let gy = 0; gy < game.board.rows; gy++) {
     for (let gx = 0; gx < game.board.cols; gx++) {
-      if (!occ.has(key(gx, gy))) cells.push({ gx, gy });
+      if (occ.has(key(gx, gy))) continue;
+      anyFree.push({ gx, gy });
+      // Aucune voisine occupée → la pièce reste libre (pas de soudure).
+      if (DIRS.every(([dx, dy]) => !occ.has(key(gx + dx, gy + dy)))) {
+        isolated.push({ gx, gy });
+      }
     }
   }
-  // Mélange (Fisher–Yates) pour une case vraiment aléatoire.
-  for (let i = cells.length - 1; i > 0; i--) {
+
+  // On privilégie les cases isolées ; sinon (plateau quasi plein) on retombe
+  // sur n'importe quelle case libre valide.
+  const pool = isolated.length ? isolated : anyFree;
+  for (let i = pool.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
-    [cells[i], cells[j]] = [cells[j], cells[i]];
+    [pool[i], pool[j]] = [pool[j], pool[i]];
   }
 
-  for (const c of cells) {
+  for (const c of pool) {
     let fits = true;
     for (const [dx, dy] of DIRS) {
       const q = occ.get(key(c.gx + dx, c.gy + dy));
