@@ -121,7 +121,7 @@ input:focus {
   text-align: center;
   color: var(--muted);
   font-size: 0.8rem;
-  margin: 22px 0 14px;
+  margin: 40px 0 14px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
@@ -358,7 +358,6 @@ input:focus {
 .top-left {
   top: 12px;
   left: 12px;
-  min-width: 210px;
 }
 .top-right {
   top: 12px;
@@ -372,7 +371,85 @@ input:focus {
 .hud-code {
   font-weight: 800;
   letter-spacing: 0.15em;
-  margin-right: 10px;
+  color: inherit;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 800;
+  transition: opacity 0.15s;
+}
+.hud-code:hover {
+  opacity: 0.75;
+}
+.menu-hint {
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+kbd {
+  font-family: inherit;
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #e2e8f0;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 5px;
+  padding: 1px 5px;
+  margin: 0 2px;
+}
+.menu-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 120;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(3, 7, 18, 0.55);
+  backdrop-filter: blur(3px);
+}
+.menu-card {
+  min-width: 340px;
+  max-width: 90vw;
+  padding: 26px 28px;
+}
+.menu-card h2 {
+  margin: 0 0 18px;
+}
+.shortcuts {
+  list-style: none;
+  margin: 0 0 26px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.shortcuts li {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+.menu-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+  color: var(--text);
+  cursor: pointer;
+  margin-bottom: 22px;
+}
+.menu-toggle input {
+  width: auto;
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--primary);
+}
+.menu-actions {
+  display: flex;
+  gap: 10px;
+}
+.menu-actions .btn {
+  flex: 1;
 }
 .hud-diff {
   color: var(--muted);
@@ -567,6 +644,9 @@ input:focus {
   .tray-shelf {
     right: 12px;
   }
+  .tray-shelf.shifted {
+    right: 254px;
+  }
 }
 
 /* Ligne pseudo / code : input souple + bouton à droite */
@@ -606,6 +686,11 @@ input:focus {
   border-radius: 12px;
   padding: 8px 12px;
   min-height: 74px;
+  transition: right 0.18s ease;
+}
+/* Modèle agrandi (360px) : on recule le bac pour ne pas le recouvrir. */
+.tray-shelf.shifted {
+  right: 384px;
 }
 .tray-label {
   font-size: 0.8rem;
@@ -619,11 +704,6 @@ input:focus {
   overflow-x: auto;
   flex: 1;
   min-height: 64px;
-}
-.tray-empty {
-  font-size: 0.8rem;
-  color: var(--muted);
-  opacity: 0.7;
 }
 .tray-piece {
   position: relative;

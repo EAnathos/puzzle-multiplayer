@@ -236,4 +236,6 @@ export interface ClientToServerEvents {
   "piece:drop": (data: { pieceId: string }) => void;
   "piece:tray": (data: { pieceId: string }) => void;
   "piece:untray": (data: { pieceId: string; gx: number; gy: number }) => void;
+  // Repose une pièce du bac sur une case libre aléatoire (rules-compatible).
+  "piece:untray-random": (data: { pieceId: string }) => void;
 }

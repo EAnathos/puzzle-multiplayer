@@ -68,6 +68,8 @@ export function Board({ game, myId, completion, onReplay }: BoardProps) {
   const [refBig, setRefBig] = useState(false);
   const [moveMode, setMoveMode] = useState<"single" | "block">("single");
   const [endDismissed, setEndDismissed] = useState(false);
+  const [codeCopied, setCodeCopied] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   // Pièces refusées (adjacence incompatible) → petite animation d'erreur.
   const [errorPieces, setErrorPieces] = useState<Set<string>>(() => new Set());
   // Reprise d'une pièce depuis le bac (glisser vers le plateau).
@@ -124,9 +126,13 @@ export function Board({ game, myId, completion, onReplay }: BoardProps) {
     };
   }, []);
 
-  // Shift ou Ctrl (une pression) bascule le mode « bloc entier ».
+  // Raccourcis clavier : Shift/Ctrl bascule le mode « bloc », Échap quitte.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        setMenuOpen((o) => !o);
+        return;
+      }
       if (e.repeat) return;
       if (e.key === "Shift" || e.key === "Control") {
         setMoveMode((m) => (m === "single" ? "block" : "single"));
@@ -290,6 +296,11 @@ export function Board({ game, myId, completion, onReplay }: BoardProps) {
     }
   }
 
+  // Double-clic : le serveur repose la pièce sur une case valide au hasard.
+  function onTrayDbl(pieceId: string) {
+    socket.emit("piece:untray-random", { pieceId });
+  }
+
   const trayPieces = game.pieces
     .filter((p) => p.tray)
     .sort((a, b) => a.trayOrder - b.trayOrder);
@@ -364,7 +375,21 @@ export function Board({ game, myId, completion, onReplay }: BoardProps) {
       {/* HUD flottant */}
       <div className="overlay hud">
         <div className="hud-panel top-left">
-          <span className="hud-code">Code {game.id}</span>
+          <button
+            className="hud-code"
+            title="Copier le code"
+            onClick={() => {
+              navigator.clipboard?.writeText(game.id).then(
+                () => {
+                  setCodeCopied(true);
+                  setTimeout(() => setCodeCopied(false), 1500);
+                },
+                () => {}
+              );
+            }}
+          >
+            Code {game.id} {codeCopied ? "✓" : "⧉"}
+          </button>
         </div>
 
         <div className="hud-panel top-right">
@@ -393,16 +418,8 @@ export function Board({ game, myId, completion, onReplay }: BoardProps) {
             <button className="btn small" onClick={() => zoomBy(1.25)}>
               +
             </button>
-            <label className="ghost-toggle">
-              <input
-                type="checkbox"
-                checked={showRef}
-                onChange={(e) => setShowRef(e.target.checked)}
-              />
-              Modèle
-            </label>
-            <button className="btn small" onClick={() => location.reload()}>
-              Quitter
+            <button className="btn small" onClick={() => setMenuOpen(true)}>
+              Menu
             </button>
           </div>
         </div>
@@ -419,30 +436,28 @@ export function Board({ game, myId, completion, onReplay }: BoardProps) {
         )}
 
         {/* Bac partagé */}
-        <div className="tray-shelf" ref={shelfRef}>
+        <div
+          className={`tray-shelf${showRef && refBig ? " shifted" : ""}`}
+          ref={shelfRef}
+        >
           <span className="tray-label">
             Bac {trayPieces.length > 0 ? `(${trayPieces.length})` : ""}
           </span>
           <div className="tray-items">
-            {trayPieces.length === 0 ? (
-              <span className="tray-empty">
-                Clic droit sur une pièce pour la mettre de côté
-              </span>
-            ) : (
-              trayPieces.map((p) => (
-                <TrayPiece
-                  key={p.id}
-                  id={p.id}
-                  geom={shapes.get(p.id)!}
-                  url={image.url}
-                  dragging={trayDrag?.pieceId === p.id}
-                  error={errorPieces.has(p.id)}
-                  onDown={onTrayDown}
-                  onMove={onTrayMove}
-                  onUp={onTrayUp}
-                />
-              ))
-            )}
+            {trayPieces.map((p) => (
+              <TrayPiece
+                key={p.id}
+                id={p.id}
+                geom={shapes.get(p.id)!}
+                url={image.url}
+                dragging={trayDrag?.pieceId === p.id}
+                error={errorPieces.has(p.id)}
+                onDown={onTrayDown}
+                onMove={onTrayMove}
+                onUp={onTrayUp}
+                onDbl={onTrayDbl}
+              />
+            ))}
           </div>
         </div>
       </div>
@@ -480,6 +495,44 @@ export function Board({ game, myId, completion, onReplay }: BoardProps) {
             </div>
           );
         })()}
+
+      {menuOpen && (
+        <div className="menu-overlay" onClick={() => setMenuOpen(false)}>
+          <div className="menu-card card" onClick={(e) => e.stopPropagation()}>
+            <h2>Menu</h2>
+            <ul className="shortcuts">
+              <li>
+                <kbd>Shift</kbd>/<kbd>Ctrl</kbd> Déplacer le bloc entier
+              </li>
+              <li>
+                <kbd>Clic droit</kbd> Envoyer la pièce au bac
+              </li>
+              <li>
+                <kbd>Double-clic</kbd> Reposer une pièce du bac au hasard
+              </li>
+              <li>
+                <kbd>Échap</kbd> Ouvrir / fermer ce menu
+              </li>
+            </ul>
+            <label className="menu-toggle">
+              <input
+                type="checkbox"
+                checked={showRef}
+                onChange={(e) => setShowRef(e.target.checked)}
+              />
+              Afficher le modèle
+            </label>
+            <div className="menu-actions">
+              <button className="btn" onClick={() => setMenuOpen(false)}>
+                Reprendre
+              </button>
+              <button className="btn primary" onClick={() => location.reload()}>
+                Quitter
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {game.status === "completed" && !endDismissed && (
         <EndScreen
@@ -580,6 +633,7 @@ function TrayPiece({
   onDown,
   onMove,
   onUp,
+  onDbl,
 }: {
   id: string;
   geom: PieceGeometry;
@@ -589,6 +643,7 @@ function TrayPiece({
   onDown: (e: ReactPointerEvent, id: string) => void;
   onMove: (e: ReactPointerEvent) => void;
   onUp: (e: ReactPointerEvent) => void;
+  onDbl: (id: string) => void;
 }) {
   const s = TRAY_THUMB / Math.max(geom.boxW, geom.boxH);
   return (
@@ -598,7 +653,8 @@ function TrayPiece({
       onPointerDown={(e) => onDown(e, id)}
       onPointerMove={onMove}
       onPointerUp={onUp}
-      title="Glisse sur le plateau pour la reposer"
+      onDoubleClick={() => onDbl(id)}
+      title="Glisse sur le plateau, ou double-clic pour la reposer au hasard"
     >
       <div
         style={{

@@ -95,27 +95,6 @@ export function Setup({ game, myId }: { game: Game; myId: string }) {
           <>
             <h2>Choisis une image</h2>
             <div className="image-grid">
-              {IMAGES.map((img) => (
-                <button
-                  key={img.id}
-                  className={`image-choice ${imageId === img.id ? "selected" : ""}`}
-                  onClick={() => setImageId(img.id)}
-                >
-                  <img src={img.url} alt={img.label} />
-                  <span>{img.label}</span>
-                </button>
-              ))}
-
-              {customUrl && (
-                <button
-                  className={`image-choice ${imageId === "custom" ? "selected" : ""}`}
-                  onClick={() => setImageId("custom")}
-                >
-                  <img src={customUrl} alt="Mon image" />
-                  <span>Mon image</span>
-                </button>
-              )}
-
               <button
                 className="image-choice import-tile"
                 onClick={() => fileRef.current?.click()}
@@ -130,6 +109,27 @@ export function Setup({ game, myId }: { game: Game; myId: string }) {
                 hidden
                 onChange={onFile}
               />
+
+              {customUrl && (
+                <button
+                  className={`image-choice ${imageId === "custom" ? "selected" : ""}`}
+                  onClick={() => setImageId("custom")}
+                >
+                  <img src={customUrl} alt="Mon image" />
+                  <span>Mon image</span>
+                </button>
+              )}
+
+              {IMAGES.map((img) => (
+                <button
+                  key={img.id}
+                  className={`image-choice ${imageId === img.id ? "selected" : ""}`}
+                  onClick={() => setImageId(img.id)}
+                >
+                  <img src={img.url} alt={img.label} />
+                  <span>{img.label}</span>
+                </button>
+              ))}
             </div>
 
             <h2>Niveau de difficulté</h2>

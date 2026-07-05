@@ -19,6 +19,7 @@ import {
   releaseHeldBy,
   trayPiece,
   untrayPiece,
+  untrayPieceRandom,
 } from "./game.ts";
 import {
   addPlayer,
@@ -182,10 +183,12 @@ io.on("connection", (socket) => {
     broadcastScores(game.id);
   });
 
-  socket.on("piece:untray", ({ pieceId, gx, gy }) => {
-    const game = getGame(data.gameId ?? "");
-    if (!game) return;
-    const res = untrayPiece(game, pieceId, gx, gy, socket.id);
+  // Diffuse le résultat d'un dépôt depuis le bac (manuel ou aléatoire).
+  function settleUntray(
+    game: NonNullable<ReturnType<typeof getGame>>,
+    res: ReturnType<typeof untrayPiece>,
+    pieceId: string
+  ) {
     if (!res.ok || !res.settled) {
       if (res.rejected) io.to(game.id).emit("piece:reject", { pieceIds: [pieceId] });
       return;
@@ -208,6 +211,18 @@ io.on("connection", (socket) => {
         contributions: contributions(game),
       });
     }
+  }
+
+  socket.on("piece:untray", ({ pieceId, gx, gy }) => {
+    const game = getGame(data.gameId ?? "");
+    if (!game) return;
+    settleUntray(game, untrayPiece(game, pieceId, gx, gy, socket.id), pieceId);
+  });
+
+  socket.on("piece:untray-random", ({ pieceId }) => {
+    const game = getGame(data.gameId ?? "");
+    if (!game) return;
+    settleUntray(game, untrayPieceRandom(game, pieceId, socket.id), pieceId);
   });
 
   socket.on("disconnect", () => {

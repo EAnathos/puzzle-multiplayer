@@ -403,6 +403,43 @@ export function untrayPiece(
   return { ok: true, settled: members(game, base), completed };
 }
 
+// Repose une pièce du bac sur une case libre aléatoire dont tous les voisins
+// sont compatibles (mêmes règles que le dépôt manuel). `rejected` si aucune.
+export function untrayPieceRandom(
+  game: Game,
+  pieceId: string,
+  playerId: string
+): DropResult {
+  const piece = findPiece(game, pieceId);
+  if (!piece || !piece.tray || !game.board) return { ok: false };
+
+  const occ = occupancy(game);
+  const cells: { gx: number; gy: number }[] = [];
+  for (let gy = 0; gy < game.board.rows; gy++) {
+    for (let gx = 0; gx < game.board.cols; gx++) {
+      if (!occ.has(key(gx, gy))) cells.push({ gx, gy });
+    }
+  }
+  // Mélange (Fisher–Yates) pour une case vraiment aléatoire.
+  for (let i = cells.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [cells[i], cells[j]] = [cells[j], cells[i]];
+  }
+
+  for (const c of cells) {
+    let fits = true;
+    for (const [dx, dy] of DIRS) {
+      const q = occ.get(key(c.gx + dx, c.gy + dy));
+      if (q && !edgesFit(edgeInDir(game, piece, dx, dy), edgeInDir(game, q, -dx, -dy))) {
+        fits = false;
+        break;
+      }
+    }
+    if (fits) return untrayPiece(game, pieceId, c.gx, c.gy, playerId);
+  }
+  return { ok: false, rejected: true };
+}
+
 // Recalcule les pièces bien placées. On ne crédite que celles que ce joueur
 // vient de placer : le groupe posé et ses voisines directes.
 export function updateScores(game: Game, playerId: string, group: number): void {
