@@ -85,6 +85,7 @@ export function Board({ game, myId, completion, onReplay }: BoardProps) {
   const pinch = useRef<{ dist: number; zoom: number } | null>(null);
   // Appui long tactile → envoie la pièce au bac (équivalent du clic droit).
   const longPress = useRef<{ timer: number; x: number; y: number } | null>(null);
+  const trayLongPress = useRef<{ timer: number; x: number; y: number } | null>(null);
   const clearLongPress = useCallback(() => {
     if (longPress.current) {
       clearTimeout(longPress.current.timer);
@@ -358,12 +359,36 @@ export function Board({ game, myId, completion, onReplay }: BoardProps) {
     e.stopPropagation();
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     setTrayDrag({ pieceId, sx: e.clientX, sy: e.clientY });
+    // Appui long (tactile) → remet la pièce en jeu au hasard.
+    if (e.pointerType === "touch") {
+      trayLongPress.current = {
+        x: e.clientX,
+        y: e.clientY,
+        timer: window.setTimeout(() => {
+          setTrayDrag(null);
+          trayLongPress.current = null;
+          onTrayReturn(pieceId);
+        }, 500),
+      };
+    }
   }
   function onTrayMove(e: ReactPointerEvent) {
+    if (trayLongPress.current) {
+      const ddx = e.clientX - trayLongPress.current.x;
+      const ddy = e.clientY - trayLongPress.current.y;
+      if (ddx * ddx + ddy * ddy > 100) {
+        clearTimeout(trayLongPress.current.timer);
+        trayLongPress.current = null;
+      }
+    }
     if (!trayDragRef.current) return;
     setTrayDrag((d) => (d ? { ...d, sx: e.clientX, sy: e.clientY } : d));
   }
   function onTrayUp(e: ReactPointerEvent) {
+    if (trayLongPress.current) {
+      clearTimeout(trayLongPress.current.timer);
+      trayLongPress.current = null;
+    }
     const d = trayDragRef.current;
     setTrayDrag(null);
     if (!d) return;
@@ -377,8 +402,9 @@ export function Board({ game, myId, completion, onReplay }: BoardProps) {
     }
   }
 
-  // Double-clic : le serveur repose la pièce sur une case valide au hasard.
-  function onTrayDbl(pieceId: string) {
+  // Clic droit sur une pièce du bac : le serveur la repose sur une case
+  // valide au hasard (remise en jeu).
+  function onTrayReturn(pieceId: string) {
     socket.emit("piece:untray-random", { pieceId });
   }
 
@@ -536,7 +562,7 @@ export function Board({ game, myId, completion, onReplay }: BoardProps) {
                 onDown={onTrayDown}
                 onMove={onTrayMove}
                 onUp={onTrayUp}
-                onDbl={onTrayDbl}
+                onReturn={onTrayReturn}
               />
             ))}
           </div>
@@ -583,13 +609,11 @@ export function Board({ game, myId, completion, onReplay }: BoardProps) {
             <h2>Menu</h2>
             <ul className="shortcuts">
               <li>
-                <kbd>Shift</kbd>/<kbd>Ctrl</kbd> Déplacer le bloc entier
+                <kbd>Shift</kbd> / <kbd>Ctrl</kbd> Déplacer le bloc entier
               </li>
               <li>
                 <kbd>Clic droit</kbd> / <kbd>Appui long</kbd> Envoyer la pièce au bac
-              </li>
-              <li>
-                <kbd>Double-clic</kbd> Reposer une pièce du bac au hasard
+                / Reprendre la pièce du bac
               </li>
               <li>
                 <kbd>Molette</kbd> / <kbd>Pincer</kbd> Zoomer
@@ -717,7 +741,7 @@ function TrayPiece({
   onDown,
   onMove,
   onUp,
-  onDbl,
+  onReturn,
 }: {
   id: string;
   geom: PieceGeometry;
@@ -727,7 +751,7 @@ function TrayPiece({
   onDown: (e: ReactPointerEvent, id: string) => void;
   onMove: (e: ReactPointerEvent) => void;
   onUp: (e: ReactPointerEvent) => void;
-  onDbl: (id: string) => void;
+  onReturn: (id: string) => void;
 }) {
   const s = TRAY_THUMB / Math.max(geom.boxW, geom.boxH);
   return (
@@ -737,8 +761,11 @@ function TrayPiece({
       onPointerDown={(e) => onDown(e, id)}
       onPointerMove={onMove}
       onPointerUp={onUp}
-      onDoubleClick={() => onDbl(id)}
-      title="Glisse sur le plateau, ou double-clic pour la reposer au hasard"
+      onContextMenu={(e) => {
+        e.preventDefault();
+        onReturn(id);
+      }}
+      title="Glisse sur le plateau, ou clic droit pour la remettre en jeu"
     >
       <div
         style={{

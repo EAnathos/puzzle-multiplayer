@@ -10,7 +10,7 @@
     </linearGradient>
   </defs>
   <rect width="512" height="512" fill="url(#bg)"/>
-  <path fill="url(#pc)" stroke="#c7d2fe" stroke-width="8" stroke-linejoin="round" d="
+  <path transform="translate(46 -10)" fill="url(#pc)" stroke="#c7d2fe" stroke-width="8" stroke-linejoin="round" d="
     M176 136
     a34 34 0 0 1 68 0 c0 10 -6 16 -6 24 c0 8 8 12 18 12
     h48 v48 c0 10 4 18 12 18 c8 0 14 -6 24 -6 a34 34 0 0 1 0 68
