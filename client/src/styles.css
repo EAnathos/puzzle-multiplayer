@@ -21,6 +21,8 @@ body {
   background: radial-gradient(circle at 50% -10%, #1e293b, var(--bg));
   color: var(--text);
   min-height: 100vh;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
 }
 
 button {
@@ -356,12 +358,12 @@ input:focus {
   padding: 12px 14px;
 }
 .top-left {
-  top: 12px;
-  left: 12px;
+  top: max(12px, env(safe-area-inset-top));
+  left: max(12px, env(safe-area-inset-left));
 }
 .top-right {
-  top: 12px;
-  right: 12px;
+  top: max(12px, env(safe-area-inset-top));
+  right: max(12px, env(safe-area-inset-right));
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -409,8 +411,7 @@ kbd {
   backdrop-filter: blur(3px);
 }
 .menu-card {
-  min-width: 340px;
-  max-width: 90vw;
+  width: min(360px, 92vw);
   padding: 26px 28px;
 }
 .menu-card h2 {
@@ -497,6 +498,8 @@ kbd {
 .controls {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 8px;
 }
 .ghost-toggle {
@@ -509,8 +512,8 @@ kbd {
 }
 .reference {
   position: absolute;
-  right: 12px;
-  bottom: 12px;
+  right: max(12px, env(safe-area-inset-right));
+  bottom: max(12px, env(safe-area-inset-bottom));
   background: rgba(15, 23, 42, 0.85);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 10px;
@@ -639,13 +642,87 @@ kbd {
     width: 110px;
   }
   .reference.big img {
-    width: 230px;
+    width: min(230px, 58vw);
   }
   .tray-shelf {
-    right: 12px;
+    right: max(12px, env(safe-area-inset-right));
   }
   .tray-shelf.shifted {
-    right: 254px;
+    right: calc(min(230px, 58vw) + 30px);
+  }
+}
+
+/* Cibles tactiles plus grandes (doigts) sur écrans à pointeur grossier. */
+@media (pointer: coarse) {
+  .btn {
+    padding: 12px 18px;
+  }
+  .btn.small {
+    padding: 9px 14px;
+  }
+  input {
+    padding: 13px 14px;
+    font-size: 16px; /* évite le zoom auto de Safari iOS sur focus */
+  }
+}
+
+/* --- Téléphones --- */
+@media (max-width: 560px) {
+  .setup {
+    padding: 14px;
+    gap: 14px;
+  }
+  .setup-main {
+    padding: 18px;
+  }
+  .lobby .card {
+    padding: 24px 20px;
+  }
+  .lobby h1 {
+    font-size: 1.45rem;
+  }
+  .code-chip {
+    font-size: 1.4rem;
+    letter-spacing: 0.15em;
+  }
+  .image-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .difficulty-row {
+    grid-template-columns: 1fr;
+  }
+  .diff-choice {
+    flex-direction: row;
+    align-items: baseline;
+    justify-content: space-between;
+  }
+
+  /* HUD : on garde le code compact et on laisse les contrôles s'empiler. */
+  .hud-panel {
+    padding: 8px 10px;
+  }
+  .hud-code {
+    font-size: 0.9rem;
+    letter-spacing: 0.08em;
+  }
+  .top-right {
+    max-width: 60vw;
+    gap: 8px;
+  }
+  .players-inline {
+    max-width: 100%;
+  }
+  .player-chip {
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .end-actions {
+    flex-direction: column;
+  }
+  .menu-actions {
+    flex-direction: column-reverse;
   }
 }
 
@@ -674,9 +751,9 @@ kbd {
 /* Bac partagé (bande basse) */
 .tray-shelf {
   position: absolute;
-  left: 12px;
+  left: max(12px, env(safe-area-inset-left));
   right: 188px;
-  bottom: 12px;
+  bottom: max(12px, env(safe-area-inset-bottom));
   display: flex;
   align-items: center;
   gap: 12px;

@@ -80,6 +80,17 @@ export function Board({ game, myId, completion, onReplay }: BoardProps) {
   const it = useRef<Interaction>({ mode: "idle" });
   const lastCursor = useRef(0);
   const lastMove = useRef(0);
+  // Multi-touch : pointeurs actifs pour le pincer-zoomer.
+  const pointers = useRef(new Map<number, { x: number; y: number }>());
+  const pinch = useRef<{ dist: number; zoom: number } | null>(null);
+  // Appui long tactile → envoie la pièce au bac (équivalent du clic droit).
+  const longPress = useRef<{ timer: number; x: number; y: number } | null>(null);
+  const clearLongPress = useCallback(() => {
+    if (longPress.current) {
+      clearTimeout(longPress.current.timer);
+      longPress.current = null;
+    }
+  }, []);
 
   useLayoutEffect(() => {
     const el = canvasRef.current;
@@ -173,6 +184,21 @@ export function Board({ game, myId, completion, onReplay }: BoardProps) {
     (e: ReactPointerEvent) => {
       if (e.button !== 0) return; // clic gauche seulement (droit = bac)
       canvasRef.current?.setPointerCapture(e.pointerId);
+      pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+      // Deux doigts → pincer-zoomer : on annule toute autre interaction.
+      if (pointers.current.size === 2) {
+        clearLongPress();
+        if (it.current.mode === "drag") {
+          socket.emit("piece:drop", { pieceId: it.current.pieceId });
+        }
+        it.current = { mode: "idle" };
+        const pts = [...pointers.current.values()];
+        pinch.current = { dist: dist(pts[0], pts[1]), zoom: zoomRef.current };
+        return;
+      }
+      if (pointers.current.size > 2) return;
+
       const el = (e.target as HTMLElement).closest("[data-piece-id]");
       const pieceId = (el as HTMLElement | null)?.dataset.pieceId;
       const piece = pieceId ? game.pieces.find((p) => p.id === pieceId) : undefined;
@@ -200,6 +226,18 @@ export function Board({ game, myId, completion, onReplay }: BoardProps) {
           if (res.ok) cur.ready = true;
           else it.current = { mode: "idle" };
         });
+        // Appui long (tactile) → envoie la pièce au bac.
+        if (e.pointerType === "touch") {
+          longPress.current = {
+            x: e.clientX,
+            y: e.clientY,
+            timer: window.setTimeout(() => {
+              socket.emit("piece:tray", { pieceId: piece.id });
+              it.current = { mode: "idle" };
+              longPress.current = null;
+            }, 500),
+          };
+        }
       } else {
         it.current = {
           mode: "pan",
@@ -210,16 +248,46 @@ export function Board({ game, myId, completion, onReplay }: BoardProps) {
         };
       }
     },
-    [game.status, game.pieces, myId, cellW, cellH, toWorld, moveMode]
+    [game.status, game.pieces, myId, cellW, cellH, toWorld, moveMode, clearLongPress]
   );
 
   const onPointerMove = useCallback(
     (e: ReactPointerEvent) => {
+      if (pointers.current.has(e.pointerId)) {
+        pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      }
+
+      // Pincer-zoomer : deux doigts pilotent le zoom autour de leur milieu.
+      if (pinch.current && pointers.current.size >= 2) {
+        const pts = [...pointers.current.values()];
+        const next = clamp(
+          (pinch.current.zoom * dist(pts[0], pts[1])) / pinch.current.dist,
+          MIN_ZOOM,
+          MAX_ZOOM
+        );
+        const rect = canvasRef.current!.getBoundingClientRect();
+        const cx = (pts[0].x + pts[1].x) / 2 - rect.left;
+        const cy = (pts[0].y + pts[1].y) / 2 - rect.top;
+        const old = zoomRef.current;
+        const wx = (cx - panRef.current.x) / old;
+        const wy = (cy - panRef.current.y) / old;
+        setPan({ x: cx - wx * next, y: cy - wy * next });
+        setZoom(next);
+        return;
+      }
+
       const w = toWorld(e.clientX, e.clientY);
       const now = performance.now();
       if (now - lastCursor.current > CURSOR_MS) {
         lastCursor.current = now;
         socket.emit("cursor:move", { x: Math.round(w.x), y: Math.round(w.y) });
+      }
+
+      // Annule l'appui long si le doigt s'éloigne (c'est un glisser).
+      if (longPress.current) {
+        const ddx = e.clientX - longPress.current.x;
+        const ddy = e.clientY - longPress.current.y;
+        if (ddx * ddx + ddy * ddy > 100) clearLongPress();
       }
 
       const cur = it.current;
@@ -245,17 +313,30 @@ export function Board({ game, myId, completion, onReplay }: BoardProps) {
         });
       }
     },
-    [toWorld, cellW, cellH, board.cols, board.rows]
+    [toWorld, cellW, cellH, board.cols, board.rows, clearLongPress]
   );
 
-  const onPointerUp = useCallback((e: ReactPointerEvent) => {
-    const cur = it.current;
-    if (cur.mode === "drag") {
-      socket.emit("piece:drop", { pieceId: cur.pieceId });
-    }
-    it.current = { mode: "idle" };
-    canvasRef.current?.releasePointerCapture(e.pointerId);
-  }, []);
+  const onPointerUp = useCallback(
+    (e: ReactPointerEvent) => {
+      pointers.current.delete(e.pointerId);
+      clearLongPress();
+      canvasRef.current?.releasePointerCapture(e.pointerId);
+
+      // Fin du pincer-zoomer : on ignore le drop tant que 2 doigts sont posés.
+      if (pinch.current) {
+        if (pointers.current.size < 2) pinch.current = null;
+        it.current = { mode: "idle" };
+        return;
+      }
+
+      const cur = it.current;
+      if (cur.mode === "drag") {
+        socket.emit("piece:drop", { pieceId: cur.pieceId });
+      }
+      it.current = { mode: "idle" };
+    },
+    [clearLongPress]
+  );
 
   // Clic droit : envoie la pièce dans le bac partagé.
   const onContextMenu = useCallback(
@@ -505,10 +586,13 @@ export function Board({ game, myId, completion, onReplay }: BoardProps) {
                 <kbd>Shift</kbd>/<kbd>Ctrl</kbd> Déplacer le bloc entier
               </li>
               <li>
-                <kbd>Clic droit</kbd> Envoyer la pièce au bac
+                <kbd>Clic droit</kbd> / <kbd>Appui long</kbd> Envoyer la pièce au bac
               </li>
               <li>
                 <kbd>Double-clic</kbd> Reposer une pièce du bac au hasard
+              </li>
+              <li>
+                <kbd>Molette</kbd> / <kbd>Pincer</kbd> Zoomer
               </li>
               <li>
                 <kbd>Échap</kbd> Ouvrir / fermer ce menu
@@ -766,6 +850,10 @@ function EndScreen({
 
 function clamp(v: number, min: number, max: number) {
   return Math.min(Math.max(v, min), max);
+}
+
+function dist(a: { x: number; y: number }, b: { x: number; y: number }) {
+  return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
 function formatDuration(ms: number) {
