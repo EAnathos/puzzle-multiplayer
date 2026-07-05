@@ -72,6 +72,9 @@ export const IMAGES: GameImage[] = [
   { id: "city", label: "Ville la nuit", url: "/images/city.svg" },
   { id: "desert", label: "Désert", url: "/images/desert.svg" },
   { id: "galaxy", label: "Galaxie", url: "/images/galaxy.svg" },
+  { id: "aurora", label: "Aurore boréale", url: "/images/aurora.svg" },
+  { id: "balloons", label: "Montgolfières", url: "/images/balloons.svg" },
+  { id: "reef", label: "Récif corallien", url: "/images/reef.svg" },
 ];
 
 export const PLAYER_COLORS = [

@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 450" width="600" height="450">
+  <defs>
+    <linearGradient id="water" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#4fd0e0"/>
+      <stop offset="50%" stop-color="#1b8fb8"/>
+      <stop offset="100%" stop-color="#0b3f6e"/>
+    </linearGradient>
+    <linearGradient id="sand" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f4e2b0"/>
+      <stop offset="100%" stop-color="#d9bd82"/>
+    </linearGradient>
+  </defs>
+  <rect width="600" height="450" fill="url(#water)"/>
+  <g fill="#fff" opacity="0.18">
+    <path d="M60 0 L90 0 L60 90 L30 90 Z"/>
+    <path d="M220 0 L250 0 L210 130 L180 130 Z"/>
+    <path d="M420 0 L445 0 L405 100 L380 100 Z"/>
+  </g>
+  <g fill="#bfefff" opacity="0.7">
+    <circle cx="150" cy="120" r="5"/>
+    <circle cx="165" cy="95" r="3"/>
+    <circle cx="470" cy="150" r="6"/>
+    <circle cx="485" cy="120" r="4"/>
+    <circle cx="320" cy="80" r="4"/>
+  </g>
+  <path d="M0 380 Q150 340 300 375 T600 360 L600 450 L0 450 Z" fill="url(#sand)"/>
+  <g fill="#ff7a59">
+    <path d="M90 385 q-25 -55 0 -95 q25 40 0 95 z"/>
+    <path d="M70 385 q-30 -45 -10 -80 q25 30 10 80 z"/>
+    <path d="M110 385 q30 -50 10 -85 q-22 35 -10 85 z"/>
+  </g>
+  <g fill="#ffd166">
+    <path d="M500 388 q-22 -60 0 -100 q22 45 0 100 z"/>
+    <path d="M480 388 q-28 -48 -8 -82 q22 32 8 82 z"/>
+    <path d="M520 388 q28 -46 8 -80 q-20 34 -8 80 z"/>
+  </g>
+  <g fill="#e05780">
+    <circle cx="300" cy="360" r="26"/>
+    <circle cx="270" cy="368" r="18"/>
+    <circle cx="332" cy="368" r="20"/>
+  </g>
+  <g stroke="#2ecc9b" stroke-width="7" stroke-linecap="round" fill="none" opacity="0.9">
+    <path d="M200 400 q-15 -70 5 -120"/>
+    <path d="M215 400 q0 -80 25 -130"/>
+    <path d="M400 400 q15 -75 -8 -125"/>
+  </g>
+  <g>
+    <path d="M355 200 q30 -18 55 0 q-25 14 -55 0 z" fill="#ffb703"/>
+    <path d="M410 200 l22 -14 v28 z" fill="#fb8500"/>
+    <circle cx="368" cy="198" r="2.5" fill="#03263a"/>
+    <path d="M150 250 q22 -13 40 0 q-18 10 -40 0 z" fill="#8ecae6"/>
+    <path d="M190 250 l16 -10 v20 z" fill="#5fa8d3"/>
+    <circle cx="160" cy="249" r="2" fill="#03263a"/>
+  </g>
+</svg>

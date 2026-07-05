@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 450" width="600" height="450">
+  <defs>
+    <linearGradient id="nightsky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#040b1e"/>
+      <stop offset="55%" stop-color="#0a1a3a"/>
+      <stop offset="100%" stop-color="#0f2b4d"/>
+    </linearGradient>
+    <linearGradient id="aur1" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#3dffb0" stop-opacity="0"/>
+      <stop offset="45%" stop-color="#3dffb0" stop-opacity="0.75"/>
+      <stop offset="100%" stop-color="#1f9d78" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="aur2" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#8a5bff" stop-opacity="0"/>
+      <stop offset="50%" stop-color="#a56bff" stop-opacity="0.6"/>
+      <stop offset="100%" stop-color="#5b8bff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect width="600" height="450" fill="url(#nightsky)"/>
+  <circle cx="90" cy="60" r="2.5" fill="#fff" opacity="0.9"/>
+  <circle cx="200" cy="40" r="1.8" fill="#fff" opacity="0.7"/>
+  <circle cx="330" cy="70" r="2.2" fill="#fff" opacity="0.8"/>
+  <circle cx="450" cy="45" r="1.6" fill="#fff" opacity="0.6"/>
+  <circle cx="530" cy="90" r="2.4" fill="#fff" opacity="0.85"/>
+  <circle cx="150" cy="110" r="1.5" fill="#fff" opacity="0.6"/>
+  <circle cx="400" cy="120" r="1.8" fill="#fff" opacity="0.7"/>
+  <path d="M-20 60 Q150 200 300 120 T620 100 L620 260 Q450 200 300 280 T-20 240 Z" fill="url(#aur1)"/>
+  <path d="M-20 120 Q180 260 340 160 T620 180 L620 320 Q420 240 260 340 T-20 300 Z" fill="url(#aur2)"/>
+  <path d="M0 380 L80 340 L160 375 L250 330 L340 370 L430 335 L520 372 L600 345 L600 450 L0 450 Z" fill="#02060f"/>
+  <path d="M0 400 L120 375 L240 398 L360 372 L480 396 L600 378 L600 450 L0 450 Z" fill="#050d1c" opacity="0.9"/>
+</svg>

@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 450" width="600" height="450">
+  <defs>
+    <linearGradient id="dawnsky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#8ec5ff"/>
+      <stop offset="55%" stop-color="#cfe6ff"/>
+      <stop offset="100%" stop-color="#ffe6c7"/>
+    </linearGradient>
+    <linearGradient id="hills" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#7bc47f"/>
+      <stop offset="100%" stop-color="#3f7a4a"/>
+    </linearGradient>
+    <radialGradient id="sun" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#fff6d6"/>
+      <stop offset="100%" stop-color="#ffd27a"/>
+    </radialGradient>
+  </defs>
+  <rect width="600" height="450" fill="url(#dawnsky)"/>
+  <circle cx="490" cy="90" r="42" fill="url(#sun)"/>
+  <ellipse cx="130" cy="70" rx="45" ry="16" fill="#fff" opacity="0.7"/>
+  <ellipse cx="170" cy="80" rx="32" ry="12" fill="#fff" opacity="0.6"/>
+  <ellipse cx="360" cy="55" rx="40" ry="14" fill="#fff" opacity="0.6"/>
+  <g>
+    <path d="M245 60 a55 55 0 0 1 110 0 q0 55 -55 110 q-55 -55 -55 -110 z" fill="#e63946"/>
+    <path d="M283 62 h34 q0 48 -17 105 q-17 -57 -17 -105 z" fill="#ffd166"/>
+    <line x1="285" y1="172" x2="293" y2="200" stroke="#5a3a2a" stroke-width="1.5"/>
+    <line x1="315" y1="172" x2="307" y2="200" stroke="#5a3a2a" stroke-width="1.5"/>
+    <rect x="290" y="200" width="20" height="16" rx="3" fill="#8a5a2b"/>
+  </g>
+  <g>
+    <path d="M120 130 a38 38 0 0 1 76 0 q0 38 -38 76 q-38 -38 -38 -76 z" fill="#2a9d8f"/>
+    <path d="M147 132 h22 q0 33 -11 72 q-11 -39 -11 -72 z" fill="#e9f5db"/>
+    <line x1="147" y1="207" x2="152" y2="228" stroke="#5a3a2a" stroke-width="1.2"/>
+    <line x1="169" y1="207" x2="164" y2="228" stroke="#5a3a2a" stroke-width="1.2"/>
+    <rect x="149" y="228" width="14" height="11" rx="2" fill="#8a5a2b"/>
+  </g>
+  <g>
+    <path d="M410 160 a30 30 0 0 1 60 0 q0 30 -30 60 q-30 -30 -30 -60 z" fill="#9b5de5"/>
+    <path d="M431 162 h18 q0 26 -9 57 q-9 -31 -9 -57 z" fill="#ffd6f0"/>
+    <line x1="431" y1="220" x2="435" y2="238" stroke="#5a3a2a" stroke-width="1.1"/>
+    <line x1="449" y1="220" x2="445" y2="238" stroke="#5a3a2a" stroke-width="1.1"/>
+    <rect x="433" y="238" width="12" height="9" rx="2" fill="#8a5a2b"/>
+  </g>
+  <path d="M0 340 Q120 300 260 335 T600 320 L600 450 L0 450 Z" fill="url(#hills)"/>
+  <path d="M0 385 Q160 355 320 385 T600 375 L600 450 L0 450 Z" fill="#2f5d3a"/>
+</svg>
