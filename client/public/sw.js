@@ -1,6 +1,6 @@
 // Service worker minimal : met en cache la coquille de l'app pour l'installer
 // et la lancer hors-ligne. Le temps réel (Socket.IO) passe toujours par le réseau.
-const CACHE = "puzzle-v1";
+const CACHE = "puzzle-v2";
 const SHELL = ["/", "/index.html", "/icon.svg", "/manifest.webmanifest"];
 
 self.addEventListener("install", (e) => {

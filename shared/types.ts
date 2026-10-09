@@ -33,6 +33,20 @@ export interface GameImage {
   id: string;
   label: string;
   url: string;
+  aspect?: number; // largeur / hauteur de l'image (4/3 par défaut)
+}
+
+// Ratio des images fournies (600×450) et ratio par défaut.
+export const DEFAULT_ASPECT = 4 / 3;
+// Au-delà, les pièces deviendraient trop allongées : on recadre (cover).
+export const MIN_ASPECT = 0.5;
+export const MAX_ASPECT = 2;
+// Taille max d'une image importée (data-URL) acceptée par le serveur.
+export const MAX_CUSTOM_IMAGE_BYTES = 8 * 1024 * 1024;
+
+export function clampAspect(aspect: number | undefined): number {
+  if (!aspect || !Number.isFinite(aspect)) return DEFAULT_ASPECT;
+  return Math.min(MAX_ASPECT, Math.max(MIN_ASPECT, aspect));
 }
 
 export interface Grid {
@@ -88,17 +102,35 @@ export const PLAYER_COLORS = [
   "#eab308",
 ];
 
-export function cellSize(grid: Grid): { w: number; h: number } {
-  return {
-    w: Math.max(34, Math.round(560 / grid.cols)),
-    h: Math.max(26, Math.round(420 / grid.rows)),
-  };
+// Taille d'une case : le puzzle complet garde le ratio de l'image (surface
+// ~560×420 px), avec un minimum de 26 px sur le plus petit côté.
+export function cellSize(grid: Grid, aspect?: number): { w: number; h: number } {
+  const a = clampAspect(aspect);
+  const W = Math.sqrt(560 * 420 * a);
+  const H = W / a;
+  let w = W / grid.cols;
+  let h = H / grid.rows;
+  const min = Math.min(w, h);
+  if (min < 26) {
+    w *= 26 / min;
+    h *= 26 / min;
+  }
+  return { w: Math.round(w), h: Math.round(h) };
 }
 
 export function boardSize(grid: Grid): Grid {
   return {
     cols: Math.round(grid.cols * 1.8) + 2,
     rows: Math.round(grid.rows * 1.8) + 2,
+  };
+}
+
+// Cadre du puzzle : zone centrale du plateau, de la taille exacte du puzzle.
+// Les pièces démarrent autour, jamais dedans.
+export function frameOrigin(grid: Grid, board: Grid): { gx: number; gy: number } {
+  return {
+    gx: Math.floor((board.cols - grid.cols) / 2),
+    gy: Math.floor((board.rows - grid.rows) / 2),
   };
 }
 
@@ -221,6 +253,11 @@ export interface ClientToServerEvents {
     data: { pseudo: string },
     ack: (res: { ok: true; gameId: string } | { ok: false; error: string }) => void
   ) => void;
+  // Vérifie qu'une partie existe (lien d'invitation, saisie du code).
+  "game:exists": (
+    data: { gameId: string },
+    ack: (res: { exists: boolean; players?: number; status?: GameStatus }) => void
+  ) => void;
   "game:join": (
     data: { gameId: string; pseudo: string },
     ack: (res: { ok: true; game: Game } | { ok: false; error: string }) => void
@@ -228,7 +265,7 @@ export interface ClientToServerEvents {
   "game:configure": (data: {
     imageId: string;
     difficulty: Difficulty;
-    customImage?: { url: string; label: string };
+    customImage?: { url: string; label: string; aspect?: number };
   }) => void;
   "cursor:move": (data: { x: number; y: number }) => void;
   "piece:grab": (

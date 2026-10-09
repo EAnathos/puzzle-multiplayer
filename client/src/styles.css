@@ -336,8 +336,28 @@ input:focus {
 }
 .piece {
   position: absolute;
-  background-repeat: no-repeat;
+  pointer-events: none; /* seule la face découpée capte le pointeur */
   transition: left 0.08s linear, top 0.08s linear;
+}
+.piece-face {
+  position: absolute;
+  inset: 0;
+  background-repeat: no-repeat;
+}
+/* Cadre central : emplacement et taille exacts du puzzle terminé. */
+.puzzle-frame {
+  position: absolute;
+  z-index: 1;
+  pointer-events: none;
+  border: 2px dashed rgba(255, 255, 255, 0.28);
+  border-radius: 4px;
+  background-color: rgba(255, 255, 255, 0.035);
+  background-repeat: no-repeat;
+  box-sizing: content-box;
+  margin: -2px 0 0 -2px;
+}
+.puzzle-frame.guide {
+  opacity: 0.28;
 }
 
 .overlay {
@@ -814,4 +834,68 @@ kbd {
 }
 .tray-piece.error {
   animation: piece-error 0.42s ease;
+}
+
+/* --- Invitation, vérification du code, reconnexion --- */
+.lookup {
+  margin: 12px 0 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+.lookup.ok {
+  color: #4ade80;
+}
+.code-inline {
+  letter-spacing: 0.15em;
+  color: var(--text);
+}
+.link-btn {
+  margin-top: 22px;
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.85rem;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.invite-row {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  max-width: 460px;
+}
+.invite-row .invite-link {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 10px;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+.invite-row .btn {
+  white-space: nowrap;
+}
+.top-left {
+  min-width: 190px;
+}
+.chip-score {
+  font-variant-numeric: tabular-nums;
+  font-size: 0.72rem;
+  color: var(--muted);
+  margin-left: 2px;
+}
+.offline-banner {
+  position: fixed;
+  top: max(12px, env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 300;
+  background: #b45309;
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 7px 16px;
+  border-radius: 999px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
 }

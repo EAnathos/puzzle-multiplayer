@@ -5,10 +5,14 @@
 // Bac partagé : une pièce peut être mise de côté (tray) hors du plateau.
 
 import {
+  DEFAULT_ASPECT,
   DIFFICULTIES,
   IMAGES,
+  MAX_CUSTOM_IMAGE_BYTES,
   boardSize,
+  clampAspect,
   edgesFit,
+  frameOrigin,
   isSolved,
   pieceEdges,
   wellPlacedSet,
@@ -31,33 +35,61 @@ const DIRS = [
 const grabSnapshots = new Map<string, { id: string; gx: number; gy: number }[]>();
 const snapKey = (game: Game, playerId: string) => `${game.id}:${playerId}`;
 
+// Images importées : uniquement des data-URL d'image en base64 (pas d'URL
+// externe qui ferait fuiter l'IP des joueurs, pas d'injection dans le CSS).
+const CUSTOM_IMAGE_RE = /^data:image\/(png|jpeg|gif|webp);base64,[A-Za-z0-9+/=]+$/;
+
+export function isValidCustomImage(url: unknown): url is string {
+  return (
+    typeof url === "string" &&
+    url.length <= MAX_CUSTOM_IMAGE_BYTES * 1.4 && // base64 ≈ +33 %
+    CUSTOM_IMAGE_RE.test(url)
+  );
+}
+
 export function configureGame(
   game: Game,
   imageId: string,
   difficulty: Difficulty,
-  customImage?: { url: string; label: string }
+  customImage?: { url: string; label: string; aspect?: number }
 ): boolean {
+  if (!Object.hasOwn(DIFFICULTIES, difficulty)) return false;
   const def = DIFFICULTIES[difficulty];
-  if (!def) return false;
 
   let image: GameImage | undefined;
-  if (imageId === "custom" && customImage?.url) {
-    image = { id: "custom", label: customImage.label || "Mon image", url: customImage.url };
+  if (imageId === "custom") {
+    if (!customImage || !isValidCustomImage(customImage.url)) return false;
+    image = {
+      id: "custom",
+      label: String(customImage.label || "Mon image").slice(0, 40),
+      url: customImage.url,
+      aspect: clampAspect(Number(customImage.aspect)),
+    };
   } else {
-    image = IMAGES.find((i) => i.id === imageId);
+    const found = IMAGES.find((i) => i.id === imageId);
+    if (found) image = { ...found, aspect: found.aspect ?? DEFAULT_ASPECT };
   }
   if (!image) return false;
 
   const grid = { rows: def.rows, cols: def.cols };
   const board = boardSize(grid);
+  const frame = frameOrigin(grid, board);
 
-  // Cases en damier (parité) d'abord : deux pièces ne démarrent jamais
+  // Les pièces démarrent autour du cadre central (marge d'une case), jamais
+  // dedans. Cases en damier (parité) d'abord : deux pièces ne démarrent jamais
   // orthogonalement adjacentes → aucune adjacence incompatible au départ.
+  const inFrame = (gx: number, gy: number) =>
+    gx >= frame.gx - 1 &&
+    gx <= frame.gx + grid.cols &&
+    gy >= frame.gy - 1 &&
+    gy <= frame.gy + grid.rows;
   const even: { gx: number; gy: number }[] = [];
   const odd: { gx: number; gy: number }[] = [];
+  const inside: { gx: number; gy: number }[] = [];
   for (let gy = 0; gy < board.rows; gy++) {
     for (let gx = 0; gx < board.cols; gx++) {
-      ((gx + gy) % 2 === 0 ? even : odd).push({ gx, gy });
+      if (inFrame(gx, gy)) inside.push({ gx, gy });
+      else ((gx + gy) % 2 === 0 ? even : odd).push({ gx, gy });
     }
   }
   const shuffle = (a: { gx: number; gy: number }[]) => {
@@ -68,7 +100,9 @@ export function configureGame(
   };
   shuffle(even);
   shuffle(odd);
-  const cells = [...even, ...odd];
+  shuffle(inside);
+  // Repli (jamais atteint avec les plateaux actuels) : cases du cadre.
+  const cells = [...even, ...odd, ...inside];
 
   const pieces: Piece[] = [];
   let g = 0;

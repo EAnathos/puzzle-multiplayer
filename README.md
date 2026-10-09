@@ -26,7 +26,8 @@ npm run serve      # build le client puis lance le serveur
 Puis ouvre **http://localhost:3000**.
 
 Pour tester à plusieurs : ouvre l'URL dans **plusieurs onglets/fenêtres**. Crée
-une partie dans le premier, copie le **code**, et rejoins-le depuis les autres.
+une partie dans le premier, copie le **lien d'invitation** (`/?code=ABCD`) et
+ouvre-le dans les autres (ou saisis le code à la main).
 
 ### Mode développement (rechargement à chaud)
 
@@ -41,9 +42,12 @@ Puis ouvre **http://localhost:5173**.
 
 ## Comment jouer
 
-1. Saisis un **pseudo** et **crée une partie** (ou rejoins avec un code).
-2. L'hôte choisit une **image** et un **niveau** (Facile 25 / Moyen 100 /
-   Difficile 400 pièces), puis démarre.
+1. Saisis un **pseudo** et **crée une partie**, puis envoie le **lien
+   d'invitation** (on ne peut rejoindre qu'une partie qui existe).
+2. L'hôte choisit une **image** (ou importe la sienne, **GIF animé** compris :
+   les pièces s'animent) et un **niveau** (Facile 25 / Moyen 100 /
+   Difficile 400 pièces), puis démarre. Le puzzle se monte dans le **cadre
+   central**, à la taille et au ratio de l'image ; les pièces sont autour.
 3. **Glisse** les pièces : une pièce bien placée s'**aimante** et se verrouille.
 4. Vous voyez en temps réel les **curseurs** des autres et les **pièces**
    qu'ils déplacent (entourées de leur couleur).

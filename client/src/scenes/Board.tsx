@@ -6,14 +6,21 @@ import {
   useMemo,
   useRef,
   useState,
-  type Dispatch,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
-  type SetStateAction,
 } from "react";
 import { socket } from "../net/socket.ts";
-import { cellSize, type Game } from "../../../shared/types.ts";
-import { buildGeometries, type PieceGeometry } from "../puzzle/shape.ts";
+import { shareInvite } from "../net/share.ts";
+import {
+  cellSize,
+  clampAspect,
+  frameOrigin,
+  wellPlacedSet,
+  type Game,
+  type Piece as PieceData,
+  type Player,
+} from "../../../shared/types.ts";
+import { buildGeometries, coverFit, type PieceGeometry } from "../puzzle/shape.ts";
 import type { Completion } from "../App.tsx";
 
 const CURSOR_MS = 45;
@@ -38,7 +45,6 @@ type Interaction =
 interface BoardProps {
   game: Game;
   myId: string;
-  setGame: Dispatch<SetStateAction<Game | null>>;
   completion: Completion | null;
   onReplay: () => void;
 }
@@ -46,13 +52,36 @@ interface BoardProps {
 export function Board({ game, myId, completion, onReplay }: BoardProps) {
   const grid = game.grid!;
   const board = game.board!;
-  const { w: cellW, h: cellH } = cellSize(grid);
+  const image = game.image!;
+  const aspect = clampAspect(image.aspect);
+  const { w: cellW, h: cellH } = cellSize(grid, aspect);
   const boardPxW = board.cols * cellW;
   const boardPxH = board.rows * cellH;
-  const image = game.image!;
+  const puzzleW = grid.cols * cellW;
+  const puzzleH = grid.rows * cellH;
+  const frame = frameOrigin(grid, board);
   const isHost = game.hostId === myId;
 
-  const shapes = useMemo(() => buildGeometries(grid), [grid.rows, grid.cols]);
+  // Fond « cover » calculé sur le vrai ratio de l'image (pas de déformation).
+  const cover = useMemo(
+    () => coverFit(puzzleW, puzzleH, image.aspect ?? aspect),
+    [puzzleW, puzzleH, image.aspect, aspect]
+  );
+  const shapes = useMemo(
+    () => buildGeometries(grid, { w: cellW, h: cellH }, cover),
+    [grid.rows, grid.cols, cellW, cellH, cover]
+  );
+
+  // GIF animé : les pièces s'animent. On garde une image fixe (1re frame)
+  // pour pouvoir couper l'animation sur les machines modestes.
+  const isGif = image.url.startsWith("data:image/gif");
+  const [animate, setAnimate] = useState(true);
+  const still = useStillFrame(image.url, isGif);
+  const displayUrl = isGif && !animate && still ? still : image.url;
+  const [showGuide, setShowGuide] = useState(false);
+  const [inviteMsg, setInviteMsg] = useState("");
+  const placed = useMemo(() => wellPlacedSet(game.pieces).size, [game.pieces]);
+  const total = game.pieces.length;
 
   const canvasRef = useRef<HTMLDivElement>(null);
   const shelfRef = useRef<HTMLDivElement>(null);
@@ -63,7 +92,6 @@ export function Board({ game, myId, completion, onReplay }: BoardProps) {
   const zoomRef = useRef(zoom);
   zoomRef.current = zoom;
 
-  const [cursors, setCursors] = useState<Record<string, { x: number; y: number }>>({});
   const [showRef, setShowRef] = useState(true);
   const [refBig, setRefBig] = useState(false);
   const [moveMode, setMoveMode] = useState<"single" | "block">("single");
@@ -71,7 +99,6 @@ export function Board({ game, myId, completion, onReplay }: BoardProps) {
   const [modeKeyHeld, setModeKeyHeld] = useState(false);
   const modeKeyRef = useRef(false);
   const [endDismissed, setEndDismissed] = useState(false);
-  const [codeCopied, setCodeCopied] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   // Pièces refusées (adjacence incompatible) → petite animation d'erreur.
   const [errorPieces, setErrorPieces] = useState<Set<string>>(() => new Set());
@@ -96,28 +123,24 @@ export function Board({ game, myId, completion, onReplay }: BoardProps) {
     }
   }, []);
 
-  useLayoutEffect(() => {
+  // Cadre la vue sur tout le plateau, puzzle au centre de l'écran.
+  const fitView = useCallback(() => {
     const el = canvasRef.current;
     if (!el) return;
     const vw = el.clientWidth;
     const vh = el.clientHeight;
-    const z = Math.max(
+    const z = clamp(
+      Math.min(1.4, (vw * 0.94) / boardPxW, (vh * 0.8) / boardPxH),
       MIN_ZOOM,
-      Math.min(1.4, (vw * 0.94) / boardPxW, (vh * 0.8) / boardPxH)
+      MAX_ZOOM
     );
+    const cx = (frame.gx * cellW + puzzleW / 2) * z;
+    const cy = (frame.gy * cellH + puzzleH / 2) * z;
     setZoom(z);
-    setPan({ x: (vw - boardPxW * z) / 2, y: (vh - boardPxH * z) / 2 + 16 });
-  }, [boardPxW, boardPxH]);
+    setPan({ x: vw / 2 - cx, y: vh / 2 - cy });
+  }, [boardPxW, boardPxH, frame.gx, frame.gy, cellW, cellH, puzzleW, puzzleH]);
 
-  useEffect(() => {
-    function onCursor({ playerId, x, y }: { playerId: string; x: number; y: number }) {
-      setCursors((prev) => ({ ...prev, [playerId]: { x, y } }));
-    }
-    socket.on("cursor:update", onCursor);
-    return () => {
-      socket.off("cursor:update", onCursor);
-    };
-  }, []);
+  useLayoutEffect(fitView, [fitView]);
 
   // Dépôt refusé : marque les pièces en erreur ~450ms.
   useEffect(() => {
@@ -178,7 +201,7 @@ export function Board({ game, myId, completion, onReplay }: BoardProps) {
     if (!el) return;
     function onWheel(e: WheelEvent) {
       e.preventDefault();
-      const rect = el.getBoundingClientRect();
+      const rect = el!.getBoundingClientRect();
       const mx = e.clientX - rect.left;
       const my = e.clientY - rect.top;
       const old = zoomRef.current;
@@ -454,69 +477,61 @@ export function Board({ game, myId, completion, onReplay }: BoardProps) {
             backgroundSize: `${cellW}px ${cellH}px`,
           }}
         >
-          {game.pieces.map((p) => {
-            if (p.tray) return null; // au bac : pas sur le plateau
-            const geom = shapes.get(p.id)!;
-            const holder = p.heldBy ? game.players[p.heldBy]?.color : undefined;
-            return (
-              <Piece
-                key={p.id}
-                id={p.id}
-                left={p.gx * cellW - geom.pad}
-                top={p.gy * cellH - geom.pad}
-                boxW={geom.boxW}
-                boxH={geom.boxH}
-                bgX={geom.bgX}
-                bgY={geom.bgY}
-                bgW={geom.bgW}
-                bgH={geom.bgH}
-                clip={geom.clip}
-                url={image.url}
-                mine={p.heldBy === myId}
-                holderColor={holder}
-                error={errorPieces.has(p.id)}
-              />
-            );
-          })}
+          <div
+            className={`puzzle-frame${showGuide ? " guide" : ""}`}
+            style={{
+              left: frame.gx * cellW,
+              top: frame.gy * cellH,
+              width: puzzleW,
+              height: puzzleH,
+              backgroundImage: showGuide ? `url(${displayUrl})` : undefined,
+              backgroundSize: `${cover.w}px ${cover.h}px`,
+              backgroundPosition: `${cover.x}px ${cover.y}px`,
+            }}
+          />
+          <PiecesLayer
+            pieces={game.pieces}
+            shapes={shapes}
+            cellW={cellW}
+            cellH={cellH}
+            url={displayUrl}
+            myId={myId}
+            players={game.players}
+            errorPieces={errorPieces}
+            lite={isGif && animate}
+          />
         </div>
       </div>
 
       {/* Curseurs des autres joueurs, en espace écran. */}
-      <div className="overlay cursors">
-        {Object.entries(cursors).map(([pid, pos]) => {
-          if (pid === myId) return null;
-          const player = game.players[pid];
-          if (!player) return null;
-          return (
-            <Cursor
-              key={pid}
-              x={pan.x + pos.x * zoom}
-              y={pan.y + pos.y * zoom}
-              color={player.color}
-              pseudo={player.pseudo}
-            />
-          );
-        })}
-      </div>
+      <CursorsLayer pan={pan} zoom={zoom} players={game.players} myId={myId} />
 
       {/* HUD flottant */}
       <div className="overlay hud">
         <div className="hud-panel top-left">
           <button
             className="hud-code"
-            title="Copier le code"
-            onClick={() => {
-              navigator.clipboard?.writeText(game.id).then(
-                () => {
-                  setCodeCopied(true);
-                  setTimeout(() => setCodeCopied(false), 1500);
-                },
-                () => {}
-              );
+            title="Partager le lien d'invitation"
+            onClick={async () => {
+              const res = await shareInvite(game.id);
+              if (res === "shared") return;
+              setInviteMsg(res === "copied" ? "Lien copié ✓" : "Copie impossible");
+              setTimeout(() => setInviteMsg(""), 1600);
             }}
           >
-            Code {game.id} {codeCopied ? "✓" : "⧉"}
+            Code {game.id} {inviteMsg ? `· ${inviteMsg}` : "· Inviter 🔗"}
           </button>
+          <div className="hud-progress" title="Pièces bien placées">
+            <div className="bar">
+              <div
+                className="bar-fill"
+                style={{ width: `${total ? (placed / total) * 100 : 0}%` }}
+              />
+            </div>
+            <span>
+              {placed} / {total}
+            </span>
+          </div>
         </div>
 
         <div className="hud-panel top-right">
@@ -526,6 +541,7 @@ export function Board({ game, myId, completion, onReplay }: BoardProps) {
                 <span className="dot" style={{ background: p.color }} />
                 {p.pseudo}
                 {p.id === myId && " (toi)"}
+                <span className="chip-score">{p.piecesPlaced}</span>
               </span>
             ))}
           </div>
@@ -547,6 +563,9 @@ export function Board({ game, myId, completion, onReplay }: BoardProps) {
             <button className="btn small" onClick={() => zoomBy(1.25)}>
               +
             </button>
+            <button className="btn small" onClick={fitView} title="Recentrer sur le puzzle">
+              ⤢
+            </button>
             <button className="btn small" onClick={() => setMenuOpen(true)}>
               Menu
             </button>
@@ -559,7 +578,7 @@ export function Board({ game, myId, completion, onReplay }: BoardProps) {
             onClick={() => setRefBig((b) => !b)}
             title={refBig ? "Réduire le modèle" : "Agrandir le modèle"}
           >
-            <img src={image.url} alt="Modèle" />
+            <img src={displayUrl} alt="Modèle" style={{ aspectRatio: `${puzzleW} / ${puzzleH}` }} />
             <span>Modèle {refBig ? "▾" : "▸"}</span>
           </div>
         )}
@@ -578,7 +597,7 @@ export function Board({ game, myId, completion, onReplay }: BoardProps) {
                 key={p.id}
                 id={p.id}
                 geom={shapes.get(p.id)!}
-                url={image.url}
+                url={displayUrl}
                 dragging={trayDrag?.pieceId === p.id}
                 error={errorPieces.has(p.id)}
                 onDown={onTrayDown}
@@ -613,7 +632,7 @@ export function Board({ game, myId, completion, onReplay }: BoardProps) {
                   height: geom.boxH,
                   transform: `scale(${s})`,
                   transformOrigin: "top left",
-                  backgroundImage: `url(${image.url})`,
+                  backgroundImage: `url(${displayUrl})`,
                   backgroundSize: `${geom.bgW}px ${geom.bgH}px`,
                   backgroundPosition: `${geom.bgX}px ${geom.bgY}px`,
                   clipPath: geom.clip,
@@ -652,11 +671,29 @@ export function Board({ game, myId, completion, onReplay }: BoardProps) {
               />
               Afficher le modèle
             </label>
+            <label className="menu-toggle">
+              <input
+                type="checkbox"
+                checked={showGuide}
+                onChange={(e) => setShowGuide(e.target.checked)}
+              />
+              Image fantôme dans le cadre
+            </label>
+            {isGif && (
+              <label className="menu-toggle">
+                <input
+                  type="checkbox"
+                  checked={animate}
+                  onChange={(e) => setAnimate(e.target.checked)}
+                />
+                Animer le GIF (décocher si ça rame)
+              </label>
+            )}
             <div className="menu-actions">
               <button className="btn" onClick={() => setMenuOpen(false)}>
                 Reprendre
               </button>
-              <button className="btn primary" onClick={() => location.reload()}>
+              <button className="btn primary" onClick={() => location.assign("/")}>
                 Quitter
               </button>
             </div>
@@ -690,45 +727,87 @@ export function Board({ game, myId, completion, onReplay }: BoardProps) {
   }
 }
 
+// --- Couche des pièces (mémoïsée : ne se re-rend pas pendant pan / zoom) ---
+
+const PiecesLayer = memo(function PiecesLayer({
+  pieces,
+  shapes,
+  cellW,
+  cellH,
+  url,
+  myId,
+  players,
+  errorPieces,
+  lite,
+}: {
+  pieces: PieceData[];
+  shapes: Map<string, PieceGeometry>;
+  cellW: number;
+  cellH: number;
+  url: string;
+  myId: string;
+  players: Record<string, Player>;
+  errorPieces: Set<string>;
+  lite: boolean;
+}) {
+  return (
+    <>
+      {pieces.map((p) => {
+        if (p.tray) return null; // au bac : pas sur le plateau
+        const geom = shapes.get(p.id)!;
+        return (
+          <Piece
+            key={p.id}
+            id={p.id}
+            left={p.gx * cellW - geom.pad}
+            top={p.gy * cellH - geom.pad}
+            geom={geom}
+            url={url}
+            mine={p.heldBy === myId}
+            holderColor={p.heldBy ? players[p.heldBy]?.color : undefined}
+            error={errorPieces.has(p.id)}
+            lite={lite}
+          />
+        );
+      })}
+    </>
+  );
+});
+
 // --- Pièce sur le plateau (mémoïsée) ---
+// Deux calques : l'enveloppe porte l'ombre / la couleur du joueur (un filtre
+// sur l'élément découpé serait lui-même découpé, donc invisible), la face
+// porte la découpe et l'image. Seule la face capte le pointeur.
 
 interface PieceProps {
   id: string;
   left: number;
   top: number;
-  boxW: number;
-  boxH: number;
-  bgX: number;
-  bgY: number;
-  bgW: number;
-  bgH: number;
-  clip: string;
+  geom: PieceGeometry;
   url: string;
   mine: boolean;
   holderColor?: string;
   error?: boolean;
+  lite: boolean; // GIF animé : pas d'ombre sur les pièces au repos (coûteux)
 }
 
 const Piece = memo(function Piece({
   id,
   left,
   top,
-  boxW,
-  boxH,
-  bgX,
-  bgY,
-  bgW,
-  bgH,
-  clip,
+  geom,
   url,
   mine,
   holderColor,
   error,
+  lite,
 }: PieceProps) {
   const heldByOther = !!holderColor && !mine;
   const filter = holderColor
-    ? `drop-shadow(0 2px 3px rgba(0,0,0,0.5)) drop-shadow(0 0 2px ${holderColor}) drop-shadow(0 0 4px ${holderColor})`
-    : "drop-shadow(0 2px 3px rgba(0,0,0,0.55))";
+    ? `drop-shadow(0 0 2px ${holderColor}) drop-shadow(0 0 3px ${holderColor}) drop-shadow(0 4px 6px rgba(0,0,0,0.5))`
+    : lite
+      ? undefined
+      : "drop-shadow(0 1px 2px rgba(0,0,0,0.55))";
   return (
     <div
       className={`piece${error ? " error" : ""}`}
@@ -736,19 +815,25 @@ const Piece = memo(function Piece({
       style={{
         left,
         top,
-        width: boxW,
-        height: boxH,
-        backgroundImage: `url(${url})`,
-        backgroundSize: `${bgW}px ${bgH}px`,
-        backgroundPosition: `${bgX}px ${bgY}px`,
-        clipPath: clip,
-        WebkitClipPath: clip,
+        width: geom.boxW,
+        height: geom.boxH,
         filter,
         zIndex: mine ? 1000 : heldByOther ? 500 : 10,
-        pointerEvents: heldByOther ? "none" : "auto",
-        cursor: mine ? "grabbing" : "grab",
       }}
-    />
+    >
+      <div
+        className="piece-face"
+        style={{
+          backgroundImage: `url(${url})`,
+          backgroundSize: `${geom.bgW}px ${geom.bgH}px`,
+          backgroundPosition: `${geom.bgX}px ${geom.bgY}px`,
+          clipPath: geom.clip,
+          WebkitClipPath: geom.clip,
+          pointerEvents: heldByOther ? "none" : "auto",
+          cursor: mine ? "grabbing" : "grab",
+        }}
+      />
+    </div>
   );
 });
 
@@ -836,6 +921,77 @@ function Cursor({
       </span>
     </div>
   );
+}
+
+// --- Curseurs des autres joueurs (état local : n'entraîne pas le plateau) ---
+
+function CursorsLayer({
+  pan,
+  zoom,
+  players,
+  myId,
+}: {
+  pan: { x: number; y: number };
+  zoom: number;
+  players: Record<string, Player>;
+  myId: string;
+}) {
+  const [cursors, setCursors] = useState<Record<string, { x: number; y: number }>>({});
+
+  useEffect(() => {
+    function onCursor({ playerId, x, y }: { playerId: string; x: number; y: number }) {
+      setCursors((prev) => ({ ...prev, [playerId]: { x, y } }));
+    }
+    socket.on("cursor:update", onCursor);
+    return () => {
+      socket.off("cursor:update", onCursor);
+    };
+  }, []);
+
+  return (
+    <div className="overlay cursors">
+      {Object.entries(cursors).map(([pid, pos]) => {
+        if (pid === myId) return null;
+        const player = players[pid];
+        if (!player) return null; // joueur parti
+        return (
+          <Cursor
+            key={pid}
+            x={pan.x + pos.x * zoom}
+            y={pan.y + pos.y * zoom}
+            color={player.color}
+            pseudo={player.pseudo}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+// Première image d'un GIF, figée (pour couper l'animation à la demande).
+function useStillFrame(url: string, enabled: boolean): string | null {
+  const [still, setStill] = useState<string | null>(null);
+  useEffect(() => {
+    setStill(null);
+    if (!enabled) return;
+    let cancelled = false;
+    const img = new Image();
+    img.onload = () => {
+      if (cancelled) return;
+      const canvas = document.createElement("canvas");
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      ctx.drawImage(img, 0, 0);
+      setStill(canvas.toDataURL("image/png"));
+    };
+    img.src = url;
+    return () => {
+      cancelled = true;
+    };
+  }, [url, enabled]);
+  return still;
 }
 
 // --- Écran de fin ---
