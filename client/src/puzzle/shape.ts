@@ -4,7 +4,7 @@
 // Déterministe à partir de (row, col) → tous les clients voient les mêmes
 // formes, et les bords voisins sont complémentaires.
 
-import { cellSize, pieceEdges, type Edges, type Grid } from "../../../shared/types.ts";
+import { pieceEdges, type Edges, type Grid } from "../../../shared/types.ts";
 
 const T = 0.1; // hauteur du tenon en fraction de la longueur du bord
 
@@ -59,8 +59,32 @@ function piecePath(e: Edges, w: number, h: number, pad: number): string {
   return d + "Z";
 }
 
-export function pieceGeometry(row: number, col: number, grid: Grid): PieceGeometry {
-  const { w: cellW, h: cellH } = cellSize(grid);
+// Fond « cover » : l'image remplit tout le puzzle sans se déformer, quitte à
+// être légèrement recadrée si son ratio sort des limites (cf. clampAspect).
+export interface Cover {
+  w: number;
+  h: number;
+  x: number;
+  y: number;
+}
+
+export function coverFit(puzzleW: number, puzzleH: number, aspect: number): Cover {
+  if (aspect > puzzleW / puzzleH) {
+    const w = puzzleH * aspect;
+    return { w, h: puzzleH, x: (puzzleW - w) / 2, y: 0 };
+  }
+  const h = puzzleW / aspect;
+  return { w: puzzleW, h, x: 0, y: (puzzleH - h) / 2 };
+}
+
+export function pieceGeometry(
+  row: number,
+  col: number,
+  grid: Grid,
+  cell: { w: number; h: number },
+  cover: Cover
+): PieceGeometry {
+  const { w: cellW, h: cellH } = cell;
   const pad = Math.ceil(0.34 * Math.max(cellW, cellH));
   const clip = piecePath(pieceEdges(row, col, grid), cellW, cellH, pad);
   return {
@@ -69,19 +93,23 @@ export function pieceGeometry(row: number, col: number, grid: Grid): PieceGeomet
     pad,
     boxW: cellW + pad * 2,
     boxH: cellH + pad * 2,
-    bgX: pad - col * cellW,
-    bgY: pad - row * cellH,
-    bgW: grid.cols * cellW,
-    bgH: grid.rows * cellH,
+    bgX: pad - col * cellW + cover.x,
+    bgY: pad - row * cellH + cover.y,
+    bgW: cover.w,
+    bgH: cover.h,
     clip: `path('${clip}')`,
   };
 }
 
-export function buildGeometries(grid: Grid): Map<string, PieceGeometry> {
+export function buildGeometries(
+  grid: Grid,
+  cell: { w: number; h: number },
+  cover: Cover
+): Map<string, PieceGeometry> {
   const map = new Map<string, PieceGeometry>();
   for (let r = 0; r < grid.rows; r++) {
     for (let c = 0; c < grid.cols; c++) {
-      map.set(`${r}-${c}`, pieceGeometry(r, c, grid));
+      map.set(`${r}-${c}`, pieceGeometry(r, c, grid, cell, cover));
     }
   }
   return map;

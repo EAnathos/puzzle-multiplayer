@@ -1,7 +1,8 @@
 // Types et constantes partagés entre le client et le serveur.
-// Modèle « grille » : chaque pièce occupe une case entière (déplacements de case
-// en case, une pièce par case). Deux pièces voisines se soudent si leurs bords
-// (tenon/mortaise) sont compatibles — même si ce n'est pas la bonne voisine.
+// Table libre : les pièces se posent n'importe où (positions continues, en
+// unités de case), elles peuvent se chevaucher. Au dépôt, une pièce proche
+// d'une voisine s'aimante et se soude si leurs bords (tenon/mortaise) sont
+// compatibles — même si ce n'est pas la bonne voisine.
 // Le score ne compte que les pièces réellement bien placées.
 
 export type Difficulty = "easy" | "medium" | "hard";
@@ -11,8 +12,8 @@ export interface Piece {
   id: string; // `${row}-${col}`
   row: number; // ligne correcte dans le puzzle
   col: number; // colonne correcte
-  gx: number; // case courante (colonne)
-  gy: number; // case courante (ligne)
+  gx: number; // position courante (en cases, continue)
+  gy: number;
   group: number; // groupe soudé (déplacé d'un bloc)
   heldBy: string | null; // joueur qui tient le groupe
   placedBy: string | null; // joueur qui l'a correctement placée (score)
@@ -33,6 +34,20 @@ export interface GameImage {
   id: string;
   label: string;
   url: string;
+  aspect?: number; // largeur / hauteur de l'image (4/3 par défaut)
+}
+
+// Ratio des images fournies (600×450) et ratio par défaut.
+export const DEFAULT_ASPECT = 4 / 3;
+// Au-delà, les pièces deviendraient trop allongées : on recadre (cover).
+export const MIN_ASPECT = 0.5;
+export const MAX_ASPECT = 2;
+// Taille max d'une image importée (data-URL) acceptée par le serveur.
+export const MAX_CUSTOM_IMAGE_BYTES = 8 * 1024 * 1024;
+
+export function clampAspect(aspect: number | undefined): number {
+  if (!aspect || !Number.isFinite(aspect)) return DEFAULT_ASPECT;
+  return Math.min(MAX_ASPECT, Math.max(MIN_ASPECT, aspect));
 }
 
 export interface Grid {
@@ -88,17 +103,35 @@ export const PLAYER_COLORS = [
   "#eab308",
 ];
 
-export function cellSize(grid: Grid): { w: number; h: number } {
-  return {
-    w: Math.max(34, Math.round(560 / grid.cols)),
-    h: Math.max(26, Math.round(420 / grid.rows)),
-  };
+// Taille d'une case : le puzzle complet garde le ratio de l'image (surface
+// ~560×420 px), avec un minimum de 26 px sur le plus petit côté.
+export function cellSize(grid: Grid, aspect?: number): { w: number; h: number } {
+  const a = clampAspect(aspect);
+  const W = Math.sqrt(560 * 420 * a);
+  const H = W / a;
+  let w = W / grid.cols;
+  let h = H / grid.rows;
+  const min = Math.min(w, h);
+  if (min < 26) {
+    w *= 26 / min;
+    h *= 26 / min;
+  }
+  return { w: Math.round(w), h: Math.round(h) };
 }
 
 export function boardSize(grid: Grid): Grid {
   return {
     cols: Math.round(grid.cols * 1.8) + 2,
     rows: Math.round(grid.rows * 1.8) + 2,
+  };
+}
+
+// Cadre du puzzle : zone centrale du plateau, de la taille exacte du puzzle.
+// Les pièces démarrent autour, jamais dedans.
+export function frameOrigin(grid: Grid, board: Grid): { gx: number; gy: number } {
+  return {
+    gx: Math.floor((board.cols - grid.cols) / 2),
+    gy: Math.floor((board.rows - grid.rows) / 2),
   };
 }
 
@@ -134,25 +167,69 @@ export function edgesFit(a: number, b: number): boolean {
   return a + b === 0;
 }
 
-const cellKey = (x: number, y: number) => `${x},${y}`;
+// Deux positions sont « alignées » à cette tolérance près (erreurs d'arrondi).
+export const ALIGN_EPS = 0.02;
+// Distance (en cases) sous laquelle une pièce s'aimante à une voisine.
+export const SNAP_DIST = 0.3;
+// Marge (en cases) autour de la table : on ne peut pas éloigner les pièces plus.
+export const TABLE_MARGIN = 1;
+
+export const near = (a: number, b: number, eps = ALIGN_EPS) => Math.abs(a - b) <= eps;
+
+// Bornes de la table pour l'origine d'une pièce.
+export function tableBounds(board: Grid) {
+  return {
+    minX: -TABLE_MARGIN,
+    minY: -TABLE_MARGIN,
+    maxX: board.cols - 1 + TABLE_MARGIN,
+    maxY: board.rows - 1 + TABLE_MARGIN,
+  };
+}
+
+// Position de l'ancre d'un groupe, bornée pour que tout le groupe reste sur la table.
+export function clampGroupMove(
+  members: Piece[],
+  anchor: Piece,
+  gx: number,
+  gy: number,
+  board: Grid
+): { gx: number; gy: number } {
+  const b = tableBounds(board);
+  let minDx = 0,
+    maxDx = 0,
+    minDy = 0,
+    maxDy = 0;
+  for (const m of members) {
+    minDx = Math.min(minDx, m.gx - anchor.gx);
+    maxDx = Math.max(maxDx, m.gx - anchor.gx);
+    minDy = Math.min(minDy, m.gy - anchor.gy);
+    maxDy = Math.max(maxDy, m.gy - anchor.gy);
+  }
+  const clampN = (v: number, lo: number, hi: number) =>
+    lo > hi ? (lo + hi) / 2 : Math.min(hi, Math.max(lo, v));
+  return {
+    gx: clampN(gx, b.minX - minDx, b.maxX - maxDx),
+    gy: clampN(gy, b.minY - minDy, b.maxY - maxDy),
+  };
+}
+
+const DIRS4 = [
+  [1, 0],
+  [-1, 0],
+  [0, 1],
+  [0, -1],
+];
 
 // Pièces réellement bien placées : au moins une vraie voisine à la bonne
 // position relative (peu importe le groupe / les soudures « libres »).
 export function wellPlacedSet(pieces: Piece[]): Set<string> {
-  const board = pieces.filter((p) => !p.tray); // les pièces au bac ne comptent pas
-  const occ = new Map<string, Piece>();
-  for (const p of board) occ.set(cellKey(p.gx, p.gy), p);
+  const byId = new Map<string, Piece>();
+  for (const p of pieces) if (!p.tray) byId.set(p.id, p); // le bac ne compte pas
   const set = new Set<string>();
-  const dirs = [
-    [1, 0],
-    [-1, 0],
-    [0, 1],
-    [0, -1],
-  ];
-  for (const p of board) {
-    for (const [dcol, drow] of dirs) {
-      const q = occ.get(cellKey(p.gx + dcol, p.gy + drow));
-      if (q && q.row === p.row + drow && q.col === p.col + dcol) {
+  for (const p of byId.values()) {
+    for (const [dcol, drow] of DIRS4) {
+      const q = byId.get(`${p.row + drow}-${p.col + dcol}`);
+      if (q && near(q.gx - p.gx, dcol) && near(q.gy - p.gy, drow)) {
         set.add(p.id);
         break;
       }
@@ -161,14 +238,13 @@ export function wellPlacedSet(pieces: Piece[]): Set<string> {
   return set;
 }
 
-// Puzzle terminé : toutes les pièces sur le plateau, au bon décalage relatif.
+// Puzzle terminé : toutes les pièces sur la table, au bon décalage relatif.
 export function isSolved(pieces: Piece[]): boolean {
   if (!pieces.length) return false;
   if (pieces.some((p) => p.tray)) return false;
   const ref = pieces[0];
   return pieces.every(
-    (p) =>
-      p.gx - ref.gx === p.col - ref.col && p.gy - ref.gy === p.row - ref.row
+    (p) => near(p.gx - ref.gx, p.col - ref.col) && near(p.gy - ref.gy, p.row - ref.row)
   );
 }
 
@@ -198,7 +274,6 @@ export interface ServerToClientEvents {
     playerId: string;
   }) => void;
   "piece:unlocked": (data: { pieceIds: string[] }) => void;
-  "piece:reject": (data: { pieceIds: string[] }) => void;
   "piece:trayed": (data: {
     pieceId: string;
     order: number;
@@ -221,6 +296,11 @@ export interface ClientToServerEvents {
     data: { pseudo: string },
     ack: (res: { ok: true; gameId: string } | { ok: false; error: string }) => void
   ) => void;
+  // Vérifie qu'une partie existe (lien d'invitation, saisie du code).
+  "game:exists": (
+    data: { gameId: string },
+    ack: (res: { exists: boolean; players?: number; status?: GameStatus }) => void
+  ) => void;
   "game:join": (
     data: { gameId: string; pseudo: string },
     ack: (res: { ok: true; game: Game } | { ok: false; error: string }) => void
@@ -228,7 +308,7 @@ export interface ClientToServerEvents {
   "game:configure": (data: {
     imageId: string;
     difficulty: Difficulty;
-    customImage?: { url: string; label: string };
+    customImage?: { url: string; label: string; aspect?: number };
   }) => void;
   "cursor:move": (data: { x: number; y: number }) => void;
   "piece:grab": (
@@ -239,6 +319,6 @@ export interface ClientToServerEvents {
   "piece:drop": (data: { pieceId: string }) => void;
   "piece:tray": (data: { pieceId: string }) => void;
   "piece:untray": (data: { pieceId: string; gx: number; gy: number }) => void;
-  // Repose une pièce du bac sur une case libre aléatoire (rules-compatible).
+  // Repose une pièce du bac à un endroit libre au hasard, à l'écart du puzzle.
   "piece:untray-random": (data: { pieceId: string }) => void;
 }
