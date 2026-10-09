@@ -27,7 +27,9 @@ Puis ouvre **http://localhost:3000**.
 
 Pour tester à plusieurs : ouvre l'URL dans **plusieurs onglets/fenêtres**. Crée
 une partie dans le premier, copie le **lien d'invitation** (`/?code=ABCD`) et
-ouvre-le dans les autres (ou saisis le code à la main).
+ouvre-le dans les autres (ou saisis le code à la main). Collé dans Discord,
+WhatsApp, Slack…, le lien affiche un aperçu de la partie (balises Open Graph
+injectées par le serveur ; variable `PUBLIC_URL` pour forcer l'URL publique).
 
 ### Mode développement (rechargement à chaud)
 
@@ -48,7 +50,9 @@ Puis ouvre **http://localhost:5173**.
    les pièces s'animent) et un **niveau** (Facile 25 / Moyen 100 /
    Difficile 400 pièces), puis démarre. Le puzzle se monte dans le **cadre
    central**, à la taille et au ratio de l'image ; les pièces sont autour.
-3. **Glisse** les pièces : une pièce bien placée s'**aimante** et se verrouille.
+3. **Glisse** les pièces librement sur la table (pas de cases, chevauchements
+   permis, table bornée) : lâchée près d'une voisine compatible ou de sa place
+   dans le cadre, une pièce s'**aimante** et se soude.
 4. Vous voyez en temps réel les **curseurs** des autres et les **pièces**
    qu'ils déplacent (entourées de leur couleur).
 5. Quand toutes les pièces sont posées, l'**écran de fin** s'affiche pour tous.

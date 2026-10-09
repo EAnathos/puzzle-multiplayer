@@ -337,7 +337,12 @@ input:focus {
 .piece {
   position: absolute;
   pointer-events: none; /* seule la face découpée capte le pointeur */
-  transition: left 0.08s linear, top 0.08s linear;
+  /* Lisse les mouvements des autres joueurs (reçus ~30 fois / s). */
+  transition: left 0.06s linear, top 0.06s linear;
+}
+/* Sa propre pièce suit le pointeur sans retard. */
+.piece.mine {
+  transition: none;
 }
 .piece-face {
   position: absolute;
@@ -818,23 +823,7 @@ kbd {
   transform: translate(-50%, -50%);
 }
 
-/* Dépôt refusé : petite secousse rouge */
-@keyframes piece-error {
-  0% { transform: translateX(0); }
-  15% { transform: translateX(-5px); }
-  30% { transform: translateX(5px); }
-  45% { transform: translateX(-4px); }
-  60% { transform: translateX(4px); }
-  75% { transform: translateX(0); }
-  100% { transform: translateX(0); }
-}
-.piece.error {
-  animation: piece-error 0.42s ease;
-  filter: drop-shadow(0 0 3px #ef4444) drop-shadow(0 0 5px #ef4444) !important;
-}
-.tray-piece.error {
-  animation: piece-error 0.42s ease;
-}
+
 
 /* --- Invitation, vérification du code, reconnexion --- */
 .lookup {

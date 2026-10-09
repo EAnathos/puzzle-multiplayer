@@ -24,7 +24,7 @@ import { buildGeometries, coverFit, type PieceGeometry } from "../puzzle/shape.t
 import type { Completion } from "../App.tsx";
 
 const CURSOR_MS = 45;
-const MOVE_MS = 40;
+const MOVE_MS = 33; // ~30 envois / s pendant un glisser
 const MIN_ZOOM = 0.2;
 const MAX_ZOOM = 2.5;
 const TRAY_THUMB = 64; // taille max d'une vignette du bac
@@ -35,11 +35,13 @@ type Interaction =
   | {
       mode: "drag";
       pieceId: string;
+      group: number | null; // connu à l'accusé de saisie
       offCx: number;
       offCy: number;
-      lastGx: number;
-      lastGy: number;
-      ready: boolean;
+      gx: number; // dernière position visée
+      gy: number;
+      sentGx: number; // dernière position envoyée
+      sentGy: number;
     };
 
 interface BoardProps {
@@ -47,9 +49,10 @@ interface BoardProps {
   myId: string;
   completion: Completion | null;
   onReplay: () => void;
+  onLocalMove: (group: number, anchorId: string, gx: number, gy: number) => void;
 }
 
-export function Board({ game, myId, completion, onReplay }: BoardProps) {
+export function Board({ game, myId, completion, onReplay, onLocalMove }: BoardProps) {
   const grid = game.grid!;
   const board = game.board!;
   const image = game.image!;
@@ -100,8 +103,6 @@ export function Board({ game, myId, completion, onReplay }: BoardProps) {
   const modeKeyRef = useRef(false);
   const [endDismissed, setEndDismissed] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  // Pièces refusées (adjacence incompatible) → petite animation d'erreur.
-  const [errorPieces, setErrorPieces] = useState<Set<string>>(() => new Set());
   // Reprise d'une pièce depuis le bac (glisser vers le plateau).
   const [trayDrag, setTrayDrag] = useState<{ pieceId: string; sx: number; sy: number } | null>(null);
   const trayDragRef = useRef(trayDrag);
@@ -141,28 +142,6 @@ export function Board({ game, myId, completion, onReplay }: BoardProps) {
   }, [boardPxW, boardPxH, frame.gx, frame.gy, cellW, cellH, puzzleW, puzzleH]);
 
   useLayoutEffect(fitView, [fitView]);
-
-  // Dépôt refusé : marque les pièces en erreur ~450ms.
-  useEffect(() => {
-    function onReject({ pieceIds }: { pieceIds: string[] }) {
-      setErrorPieces((prev) => {
-        const n = new Set(prev);
-        for (const id of pieceIds) n.add(id);
-        return n;
-      });
-      setTimeout(() => {
-        setErrorPieces((prev) => {
-          const n = new Set(prev);
-          for (const id of pieceIds) n.delete(id);
-          return n;
-        });
-      }, 450);
-    }
-    socket.on("piece:reject", onReject);
-    return () => {
-      socket.off("piece:reject", onReject);
-    };
-  }, []);
 
   // Raccourcis clavier : Échap ouvre le menu ; Shift/Ctrl active le mode
   // « bloc » de façon momentanée (seulement tant que la touche est maintenue),
@@ -223,6 +202,19 @@ export function Board({ game, myId, completion, onReplay }: BoardProps) {
     };
   }, []);
 
+  // Envoie la position visée au serveur (limité à MOVE_MS sauf si `force`).
+  function flushMove(cur: Extract<Interaction, { mode: "drag" }>, force: boolean) {
+    const now = performance.now();
+    if (!force && now - lastMove.current < MOVE_MS) return;
+    const gx = Math.round(cur.gx * 100) / 100;
+    const gy = Math.round(cur.gy * 100) / 100;
+    if (gx === cur.sentGx && gy === cur.sentGy) return;
+    cur.sentGx = gx;
+    cur.sentGy = gy;
+    lastMove.current = now;
+    socket.emit("group:move", { pieceId: cur.pieceId, gx, gy });
+  }
+
   const onPointerDown = useCallback(
     (e: ReactPointerEvent) => {
       if (e.button !== 0) return; // clic gauche seulement (droit = bac)
@@ -258,17 +250,25 @@ export function Board({ game, myId, completion, onReplay }: BoardProps) {
         it.current = {
           mode: "drag",
           pieceId: piece.id,
+          group: null,
           offCx: piece.gx - w.x / cellW,
           offCy: piece.gy - w.y / cellH,
-          lastGx: piece.gx,
-          lastGy: piece.gy,
-          ready: false,
+          gx: piece.gx,
+          gy: piece.gy,
+          sentGx: piece.gx,
+          sentGy: piece.gy,
         };
         socket.emit("piece:grab", { pieceId: piece.id, single }, (res) => {
           const cur = it.current;
           if (cur.mode !== "drag" || cur.pieceId !== piece.id) return;
-          if (res.ok) cur.ready = true;
-          else it.current = { mode: "idle" };
+          if (!res.ok || res.group === undefined) {
+            it.current = { mode: "idle" };
+            return;
+          }
+          cur.group = res.group;
+          // Rattrape le mouvement fait pendant l'attente de l'accusé.
+          onLocalMove(res.group, cur.pieceId, cur.gx, cur.gy);
+          flushMove(cur, true);
         });
         // Appui long (tactile) → envoie la pièce au bac.
         if (e.pointerType === "touch") {
@@ -292,7 +292,7 @@ export function Board({ game, myId, completion, onReplay }: BoardProps) {
         };
       }
     },
-    [game.status, game.pieces, myId, cellW, cellH, toWorld, moveMode, clearLongPress]
+    [game.status, game.pieces, myId, cellW, cellH, toWorld, moveMode, clearLongPress, onLocalMove]
   );
 
   const onPointerMove = useCallback(
@@ -336,20 +336,13 @@ export function Board({ game, myId, completion, onReplay }: BoardProps) {
 
       const cur = it.current;
       if (cur.mode === "drag") {
-        if (!cur.ready) return;
-        let gx = Math.round(w.x / cellW + cur.offCx);
-        let gy = Math.round(w.y / cellH + cur.offCy);
-        gx = clamp(gx, 0, board.cols - 1);
-        gy = clamp(gy, 0, board.rows - 1);
-        if (
-          (gx !== cur.lastGx || gy !== cur.lastGy) &&
-          now - lastMove.current > MOVE_MS
-        ) {
-          cur.lastGx = gx;
-          cur.lastGy = gy;
-          lastMove.current = now;
-          socket.emit("group:move", { pieceId: cur.pieceId, gx, gy });
-        }
+        // Déplacement libre (pas de cases) : affiché tout de suite chez soi,
+        // envoyé au serveur à cadence limitée.
+        cur.gx = w.x / cellW + cur.offCx;
+        cur.gy = w.y / cellH + cur.offCy;
+        if (cur.group === null) return;
+        onLocalMove(cur.group, cur.pieceId, cur.gx, cur.gy);
+        flushMove(cur, false);
       } else if (cur.mode === "pan") {
         setPan({
           x: cur.panX + (e.clientX - cur.ptrX),
@@ -357,7 +350,7 @@ export function Board({ game, myId, completion, onReplay }: BoardProps) {
         });
       }
     },
-    [toWorld, cellW, cellH, board.cols, board.rows, clearLongPress]
+    [toWorld, cellW, cellH, clearLongPress, onLocalMove]
   );
 
   const onPointerUp = useCallback(
@@ -375,6 +368,7 @@ export function Board({ game, myId, completion, onReplay }: BoardProps) {
 
       const cur = it.current;
       if (cur.mode === "drag") {
+        if (cur.group !== null) flushMove(cur, true); // position finale exacte
         socket.emit("piece:drop", { pieceId: cur.pieceId });
       }
       it.current = { mode: "idle" };
@@ -438,9 +432,10 @@ export function Board({ game, myId, completion, onReplay }: BoardProps) {
     const shelf = shelfRef.current?.getBoundingClientRect();
     const overShelf = shelf && e.clientY >= shelf.top;
     if (!overShelf) {
+      // Le fantôme est centré sur le pointeur : origine de la pièce = -½ case.
       const w = toWorld(e.clientX, e.clientY);
-      const gx = clamp(Math.round(w.x / cellW), 0, board.cols - 1);
-      const gy = clamp(Math.round(w.y / cellH), 0, board.rows - 1);
+      const gx = Math.round((w.x / cellW - 0.5) * 100) / 100;
+      const gy = Math.round((w.y / cellH - 0.5) * 100) / 100;
       socket.emit("piece:untray", { pieceId: d.pieceId, gx, gy });
     }
   }
@@ -472,9 +467,6 @@ export function Board({ game, myId, completion, onReplay }: BoardProps) {
             width: boardPxW,
             height: boardPxH,
             transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
-            backgroundImage:
-              "linear-gradient(rgba(255,255,255,0.07) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.07) 1px, transparent 1px)",
-            backgroundSize: `${cellW}px ${cellH}px`,
           }}
         >
           <div
@@ -497,7 +489,6 @@ export function Board({ game, myId, completion, onReplay }: BoardProps) {
             url={displayUrl}
             myId={myId}
             players={game.players}
-            errorPieces={errorPieces}
             lite={isGif && animate}
           />
         </div>
@@ -599,7 +590,6 @@ export function Board({ game, myId, completion, onReplay }: BoardProps) {
                 geom={shapes.get(p.id)!}
                 url={displayUrl}
                 dragging={trayDrag?.pieceId === p.id}
-                error={errorPieces.has(p.id)}
                 onDown={onTrayDown}
                 onMove={onTrayMove}
                 onUp={onTrayUp}
@@ -737,7 +727,6 @@ const PiecesLayer = memo(function PiecesLayer({
   url,
   myId,
   players,
-  errorPieces,
   lite,
 }: {
   pieces: PieceData[];
@@ -747,7 +736,6 @@ const PiecesLayer = memo(function PiecesLayer({
   url: string;
   myId: string;
   players: Record<string, Player>;
-  errorPieces: Set<string>;
   lite: boolean;
 }) {
   return (
@@ -765,7 +753,6 @@ const PiecesLayer = memo(function PiecesLayer({
             url={url}
             mine={p.heldBy === myId}
             holderColor={p.heldBy ? players[p.heldBy]?.color : undefined}
-            error={errorPieces.has(p.id)}
             lite={lite}
           />
         );
@@ -787,7 +774,6 @@ interface PieceProps {
   url: string;
   mine: boolean;
   holderColor?: string;
-  error?: boolean;
   lite: boolean; // GIF animé : pas d'ombre sur les pièces au repos (coûteux)
 }
 
@@ -799,7 +785,6 @@ const Piece = memo(function Piece({
   url,
   mine,
   holderColor,
-  error,
   lite,
 }: PieceProps) {
   const heldByOther = !!holderColor && !mine;
@@ -810,7 +795,7 @@ const Piece = memo(function Piece({
       : "drop-shadow(0 1px 2px rgba(0,0,0,0.55))";
   return (
     <div
-      className={`piece${error ? " error" : ""}`}
+      className={`piece${mine ? " mine" : ""}`}
       data-piece-id={id}
       style={{
         left,
@@ -844,7 +829,6 @@ function TrayPiece({
   geom,
   url,
   dragging,
-  error,
   onDown,
   onMove,
   onUp,
@@ -854,7 +838,6 @@ function TrayPiece({
   geom: PieceGeometry;
   url: string;
   dragging: boolean;
-  error: boolean;
   onDown: (e: ReactPointerEvent, id: string) => void;
   onMove: (e: ReactPointerEvent) => void;
   onUp: (e: ReactPointerEvent) => void;
@@ -863,7 +846,7 @@ function TrayPiece({
   const s = TRAY_THUMB / Math.max(geom.boxW, geom.boxH);
   return (
     <div
-      className={`tray-piece${error ? " error" : ""}`}
+      className="tray-piece"
       style={{ width: geom.boxW * s, height: geom.boxH * s, opacity: dragging ? 0.3 : 1 }}
       onPointerDown={(e) => onDown(e, id)}
       onPointerMove={onMove}

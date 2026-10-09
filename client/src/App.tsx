@@ -4,11 +4,28 @@ import { codeFromUrl, savedPseudo, setUrlCode } from "./net/share.ts";
 import { Lobby } from "./scenes/Lobby.tsx";
 import { Setup } from "./scenes/Setup.tsx";
 import { Board } from "./scenes/Board.tsx";
-import type { Game, Piece, Player } from "../../shared/types.ts";
+import { clampGroupMove, type Game, type Piece, type Player } from "../../shared/types.ts";
 
 export interface Completion {
   durationMs: number;
   contributions: Record<string, number>;
+}
+
+// Translate un groupe pour amener son ancre en (gx, gy), borné à la table.
+function moveGroupLocal(game: Game, group: number, anchorId: string, gx: number, gy: number): Game {
+  const anchor = game.pieces.find((p) => p.id === anchorId);
+  if (!anchor || !game.board) return game;
+  const grp = game.pieces.filter((p) => p.group === group);
+  const pos = clampGroupMove(grp, anchor, gx, gy, game.board);
+  const dx = pos.gx - anchor.gx;
+  const dy = pos.gy - anchor.gy;
+  if (dx === 0 && dy === 0) return game;
+  return {
+    ...game,
+    pieces: game.pieces.map((p) =>
+      p.group === group ? { ...p, gx: p.gx + dx, gy: p.gy + dy } : p
+    ),
+  };
 }
 
 export function App() {
@@ -112,22 +129,9 @@ export function App() {
       );
     });
 
-    // Un groupe se déplace : translation de toutes ses pièces (offset arbitraire).
+    // Un groupe se déplace (chez un autre joueur) : translation de ses pièces.
     socket.on("group:moved", ({ group, anchorId, gx, gy }) => {
-      setGame((prev) => {
-        if (!prev) return prev;
-        const anchor = prev.pieces.find((p) => p.id === anchorId);
-        if (!anchor) return prev;
-        const dx = gx - anchor.gx;
-        const dy = gy - anchor.gy;
-        if (dx === 0 && dy === 0) return prev;
-        return {
-          ...prev,
-          pieces: prev.pieces.map((p) =>
-            p.group === group ? { ...p, gx: p.gx + dx, gy: p.gy + dy } : p
-          ),
-        };
-      });
+      setGame((prev) => (prev ? moveGroupLocal(prev, group, anchorId, gx, gy) : prev));
     });
 
     // Un groupe se pose (et fusionne avec ses voisins) : positions autoritaires.
@@ -241,6 +245,9 @@ export function App() {
           myId={myId}
           completion={completion}
           onReplay={() => setReconfigure(true)}
+          onLocalMove={(group, anchorId, gx, gy) =>
+            setGame((prev) => (prev ? moveGroupLocal(prev, group, anchorId, gx, gy) : prev))
+          }
         />
       )}
       {!online && <div className="offline-banner">Connexion perdue, reconnexion…</div>}
